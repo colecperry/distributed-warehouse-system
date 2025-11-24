@@ -1,191 +1,134 @@
-###########################################
-# IntelliJ IDEA
-###########################################
-.idea/
-*.iml
-*.iws
-*.ipr
-out/
-.idea_modules/
-
-# IntelliJ user-specific settings (keep project settings)
-.idea/workspace.xml
-.idea/tasks.xml
-.idea/dictionaries/
-.idea/shelf/
-.idea/dataSources/
-.idea/dataSources.ids
-.idea/dataSources.local.xml
-.idea/sqlDataSources.xml
-.idea/dynamic.xml
-.idea/uiDesigner.xml
-.idea/gradle.xml
-.idea/libraries/
-
-###########################################
-# Maven
-###########################################
+# Java
+*.class
+*.jar
+*.war
+*.ear
 target/
+*.log
+*.tmp
+
+# Maven
+.mvn/
+mvnw
+mvnw.cmd
 pom.xml.tag
 pom.xml.releaseBackup
 pom.xml.versionsBackup
 pom.xml.next
 release.properties
-dependency-reduced-pom.xml
-buildNumber.properties
-.mvn/timing.properties
-.mvn/wrapper/maven-wrapper.jar
 
-###########################################
-# Java
-###########################################
-*.class
-*.jar
-*.war
-*.ear
-*.zip
-*.tar.gz
-*.rar
-hs_err_pid*
-replay_pid*
+# IDE - IntelliJ
+.idea/
+*.iml
+*.iws
+out/
 
-###########################################
-# Spring Boot
-###########################################
-application-local.yml
-application-local.properties
-application-dev.yml
-application-dev.properties
-application-prod.yml
-application-prod.properties
+# IDE - Eclipse
+.classpath
+.project
+.settings/
+bin/
 
-###########################################
-# Logs
-###########################################
-*.log
-logs/
-spring.log
-log/
-
-###########################################
-# Docker
-###########################################
-# Docker build context
-.dockerignore
-
-# Local docker-compose override
-docker-compose.override.yml
-
-# Docker volumes
-.docker/
-
-###########################################
-# AWS & Terraform
-###########################################
-# Terraform state files (CRITICAL - contains sensitive data)
-*.tfstate
-*.tfstate.*
-*.tfstate.backup
-.terraform/
-.terraform.lock.hcl
-terraform.tfvars
-terraform.tfvars.json
-
-# AWS credentials (NEVER COMMIT THESE!)
-*.pem
-*.ppk
-.aws/
-credentials
-config
-
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-###########################################
-# RabbitMQ
-###########################################
-# RabbitMQ data directory if running locally
-rabbitmq-data/
-
-###########################################
-# Testing & Load Testing
-###########################################
-# Test output files
-test-results/
-test-output/
-*.csv
-performance-results/
-latency-data/
-
-# JMeter files (if you use it)
-*.jmx.bak
-
-###########################################
-# OS Specific
-###########################################
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-._*
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
-
-# Linux
-*~
-.directory
-
-###########################################
-# Build Tools
-###########################################
-# Gradle (in case anyone uses it)
-.gradle/
-build/
-gradle-app.setting
-!gradle-wrapper.jar
-
-###########################################
-# VS Code (if teammates use it)
-###########################################
+# IDE - VSCode
 .vscode/
 *.code-workspace
 
-###########################################
-# Temporary Files
-###########################################
-*.tmp
-*.temp
+# IDE - NetBeans
+nbproject/
+build/
+nbbuild/
+dist/
+nbdist/
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+
+# AWS & Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform.lock.hcl
+terraform.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# AWS Credentials (NEVER COMMIT THESE!)
+*.pem
+*.key
+credentials
+.aws/
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+*.env
+
+# Docker
+*.pid
+.dockerignore
+
+# Python (for Locust)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test Coverage
+coverage/
+.nyc_output/
+
+# Temporary files
 *.swp
 *.swo
+*.bak
+*.backup
+*.orig
 *~
-.#*
 
-###########################################
-# Database (if running locally)
-###########################################
-*.db
-*.sqlite
-*.h2.db
+# Large data files
+*.csv
+*.xlsx
+*.zip
+*.tar.gz
 
-###########################################
-# Assignment-Specific
-###########################################
-# Your load test output CSVs
-/load-test-client/results/
-/load-test-client/latencies.csv
+# Documentation build files
+documentation/*.pdf
+!documentation/final-report.pdf
 
-# Screenshots for submission (keep in separate folder)
-# screenshots/ folder should be committed
+# Video files (too large for git)
+videos/*.mp4
+videos/*.mov
+videos/*.avi
 
-# EC2 key pairs
-*.pem
-ec2-keypair.*
+# CloudWatch logs
+cloudwatch-logs/
 
-# ECR login tokens
-ecr-login.txt
+# Load test results
+locust-tests/results/
+locust-tests/reports/
