@@ -138,4 +138,38 @@ public class LeaderController {
         );
         return ResponseEntity.ok(status);
     }
+
+    // ==========================================
+// TRANSACTION ENDPOINTS (Assignment 5)
+// ==========================================
+
+    /**
+     * Begin a transaction (just prints message).
+     * POST /api/transaction/begin
+     */
+    @PostMapping("/transaction/begin")
+    public ResponseEntity<String> beginTransaction() {
+        System.out.println("Transaction STARTED");
+        return ResponseEntity.ok("Transaction started");
+    }
+
+    /**
+     * End a transaction (just prints message).
+     * POST /api/transaction/end
+     */
+    @PostMapping("/transaction/end")
+    public ResponseEntity<String> endTransaction() {
+        System.out.println("Transaction COMMITTED");
+        return ResponseEntity.ok("Transaction committed");
+    }
+
+    /**
+     * Abort a transaction (just prints message).
+     * POST /api/transaction/abort
+     */
+    @PostMapping("/transaction/abort")
+    public ResponseEntity<String> abortTransaction() {
+        System.out.println("Transaction ABORTED");
+        return ResponseEntity.ok("Transaction aborted");
+    }
 }
