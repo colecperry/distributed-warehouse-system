@@ -93,11 +93,11 @@ This is a basic skeleton design - please give ideas and change as needed!
 ### Phase 1: Foundation (Nov 28th Friday)
 - **Member B**: Set up database, create data loader
 - **Member C**: Update Product/Shopping Cart services
-- **Member D**: Update Credit Card Provider
+- **Member D**: Update Credit Card Service
 - **Member A**: Start Warehouse service
 
 ### Phase 2: Integration (Nov 30th Sunday)
-- **Member A**: Complete Warehouse, implement use case workflows
+- **Member A**: Complete Warehouse, local unit test
 - **Member B**: Add transaction endpoints, integrate with services
 - **Member C**: Integrate services with database, test workflows
 - **Member D**: Configure Terraform, prepare AWS infrastructure
