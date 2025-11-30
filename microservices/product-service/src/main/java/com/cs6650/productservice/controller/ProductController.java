@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
@@ -16,9 +17,23 @@ public class ProductController {
 
     private final Map<Integer, Product> productStore = new ConcurrentHashMap<>();
     private final AtomicInteger productIdCounter = new AtomicInteger(1);
+    private final Random random = new Random();
+
+    // Utility method for adding delay (100–1000 ms)
+    private void simulateDelay() {
+        int delay = 100 + random.nextInt(901);
+        try {
+            Thread.sleep(delay);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 
     @PostMapping("/product")
     public ResponseEntity<Map<String, Integer>> createProduct(@RequestBody Product product) {
+        
+        simulateDelay();
+        
         log.info("POST request to create product");
 
         // Generate a new unique product ID
@@ -36,6 +51,9 @@ public class ProductController {
 
     @GetMapping("/products/{productId}")
     public ResponseEntity<Product> getProduct(@PathVariable Integer productId) {
+        
+        simulateDelay();
+        
         log.info("GET request for product ID: {}", productId);
         Product product = productStore.get(productId);
 
