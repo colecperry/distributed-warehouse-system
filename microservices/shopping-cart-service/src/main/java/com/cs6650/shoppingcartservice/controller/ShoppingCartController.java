@@ -32,14 +32,29 @@ public class ShoppingCartController {
   private final AtomicInteger idCounter = new AtomicInteger(1);
   private final AtomicInteger orderIdCounter = new AtomicInteger(1);
 
+  private final Random random = new Random();
+
   @Value("${credit.card.authorizer.url}")
   private String CCA_URL;
 
   @Autowired
   private RabbitMQService rabbitMQService;
 
+  // Utility delay: 100–1000ms
+  private void simulateDelay() {
+    int delay = 100 + random.nextInt(902);
+    try {
+      Thread.sleep(delay);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
   @PostMapping("/shopping-cart")
   public ResponseEntity<Map<String, Object>> createCart(@RequestBody Map<String, Integer> request) {
+
+    simulateDelay();
+    
     Integer customerId = request.get("customer_id");
     if (customerId == null || customerId <= 0) {
       return new ResponseEntity<>(Map.of("error", "INVALID_INPUT"), HttpStatus.BAD_REQUEST);
@@ -57,6 +72,9 @@ public class ShoppingCartController {
 
   @PostMapping("/shopping-carts/{shoppingCartId}/addItem")
   public ResponseEntity<Void> addItem(@PathVariable Integer shoppingCartId, @RequestBody CartItem item) {
+
+    simulateDelay();
+
     ShoppingCart cart = carts.get(shoppingCartId);
     if (cart == null) {
       logger.warn("Attempted to add item to non-existent cart {}", shoppingCartId);
@@ -84,6 +102,8 @@ public class ShoppingCartController {
   public ResponseEntity<Map<String, Object>> checkout(
       @PathVariable Integer shoppingCartId,
       @RequestBody Map<String, String> request) {
+
+    simulateDelay();
 
     // Validate cart exists
     ShoppingCart cart = carts.get(shoppingCartId);
