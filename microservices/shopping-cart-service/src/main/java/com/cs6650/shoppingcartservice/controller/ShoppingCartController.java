@@ -1,8 +1,10 @@
 package com.cs6650.shoppingcartservice.controller;
 
+import com.cs6650.shoppingcartservice.client.DatabaseClient;
 import com.cs6650.shoppingcartservice.model.CartItem;
 import com.cs6650.shoppingcartservice.model.ShoppingCart;
 import com.cs6650.shoppingcartservice.service.RabbitMQService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,22 +18,19 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * ShoppingCartController implements:
- * - POST /shopping-cart
- * - POST /shopping-carts/{id}/addItem
- * - POST /shopping-carts/{id}/checkout (calls CCA)
+ * Shopping Cart Service Controller
  *
- * //ADD RABBITMQ HERE → This service will eventually publish checkout or order events.
+ * Handles creating carts, adding items, and checkout flow with our distributed database.
+ * Carts are stored as JSON strings in the database with keys like "cart_1", "cart_2", etc.
+ *
+ * Each endpoint includes a random delay (100-1000ms) to simulate real business logic processing.
  */
 @RestController
 @RequestMapping("")
 public class ShoppingCartController {
   private static final Logger logger = LoggerFactory.getLogger(ShoppingCartController.class);
-
-  private final Map<Integer, ShoppingCart> carts = new HashMap<>();
   private final AtomicInteger idCounter = new AtomicInteger(1);
   private final AtomicInteger orderIdCounter = new AtomicInteger(1);
-
   private final Random random = new Random();
 
   @Value("${credit.card.authorizer.url}")
@@ -40,7 +39,17 @@ public class ShoppingCartController {
   @Autowired
   private RabbitMQService rabbitMQService;
 
-  // Utility delay: 100–1000ms
+  // NEW: Database client for storing/retrieving carts
+  @Autowired
+  private DatabaseClient database;
+
+  // NEW: JSON serialization for converting carts to/from JSON strings
+  @Autowired
+  private ObjectMapper objectMapper;
+
+  /**
+   * Adds a random delay between 100-1000ms to simulate business logic.
+   */
   private void simulateDelay() {
     int delay = 100 + random.nextInt(902);
     try {
@@ -50,11 +59,14 @@ public class ShoppingCartController {
     }
   }
 
+  /**
+   * Create a new shopping cart for a customer.
+   * Stores cart in database
+   */
   @PostMapping("/shopping-cart")
   public ResponseEntity<Map<String, Object>> createCart(@RequestBody Map<String, Integer> request) {
-
     simulateDelay();
-    
+
     Integer customerId = request.get("customer_id");
     if (customerId == null || customerId <= 0) {
       return new ResponseEntity<>(Map.of("error", "INVALID_INPUT"), HttpStatus.BAD_REQUEST);
@@ -64,22 +76,27 @@ public class ShoppingCartController {
     ShoppingCart cart = new ShoppingCart();
     cart.setShoppingCartId(cartId);
     cart.setCustomerId(customerId);
-    carts.put(cartId, cart);
 
-    logger.info("Created cart {} for customer {}", cartId, customerId);
-    return new ResponseEntity<>(Map.of("shopping_cart_id", cartId), HttpStatus.CREATED);
+    try {
+      // NEW: Store cart in database as JSON
+      String cartJson = objectMapper.writeValueAsString(cart);
+      database.put("cart_" + cartId, cartJson);
+
+      logger.info("Created cart {} for customer {}", cartId, customerId);
+      return new ResponseEntity<>(Map.of("shopping_cart_id", cartId), HttpStatus.CREATED);
+    } catch (Exception e) {
+      logger.error("Failed to create cart in database", e);
+      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+    }
   }
 
+  /**
+   * Add an item to an existing shopping cart.
+   * Now reads/writes cart from/to database instead of HashMap.
+   */
   @PostMapping("/shopping-carts/{shoppingCartId}/addItem")
   public ResponseEntity<Void> addItem(@PathVariable Integer shoppingCartId, @RequestBody CartItem item) {
-
     simulateDelay();
-
-    ShoppingCart cart = carts.get(shoppingCartId);
-    if (cart == null) {
-      logger.warn("Attempted to add item to non-existent cart {}", shoppingCartId);
-      return new ResponseEntity<>(HttpStatus.NOT_FOUND);
-    }
 
     // Validate product ID
     if (item.getProductId() == null || item.getProductId() <= 0) {
@@ -93,26 +110,44 @@ public class ShoppingCartController {
       return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
     }
 
-    cart.getItems().add(item);
-    logger.info("Added {} x product {} to cart {}", item.getQuantity(), item.getProductId(), shoppingCartId);
-    return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+    try {
+      // NEW: Read cart from database
+      String cartJson = database.get("cart_" + shoppingCartId);
+
+      if (cartJson == null) {
+        logger.warn("Attempted to add item to non-existent cart {}", shoppingCartId);
+        return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+      }
+
+      // NEW: Deserialize cart from JSON
+      ShoppingCart cart = objectMapper.readValue(cartJson, ShoppingCart.class);
+
+      // Add item to cart (same as before)
+      cart.getItems().add(item);
+
+      // NEW: Save updated cart back to database
+      String updatedCartJson = objectMapper.writeValueAsString(cart);
+      database.put("cart_" + shoppingCartId, updatedCartJson);
+
+      logger.info("Added {} x product {} to cart {}", item.getQuantity(), item.getProductId(), shoppingCartId);
+      return new ResponseEntity<>(HttpStatus.NO_CONTENT);
+
+    } catch (Exception e) {
+      logger.error("Failed to add item to cart", e);
+      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+    }
   }
 
+  /**
+   * Checkout a shopping cart.
+   * Reads cart from database
+   */
   @PostMapping("/shopping-carts/{shoppingCartId}/checkout")
   public ResponseEntity<Map<String, Object>> checkout(
       @PathVariable Integer shoppingCartId,
       @RequestBody Map<String, String> request) {
 
     simulateDelay();
-
-    // Validate cart exists
-    ShoppingCart cart = carts.get(shoppingCartId);
-    if (cart == null) {
-      logger.warn("Checkout attempted on non-existent cart {}", shoppingCartId);
-      return new ResponseEntity<>(
-          Map.of("error", "NOT_FOUND", "message", "Cart not found"),
-          HttpStatus.NOT_FOUND);
-    }
 
     // Validate credit card provided
     String creditCardNumber = request.get("credit_card_number");
@@ -124,6 +159,23 @@ public class ShoppingCartController {
     }
 
     try {
+      // NEW: Read cart from database instead of HashMap
+      String cartJson = database.get("cart_" + shoppingCartId);
+
+      if (cartJson == null) {
+        logger.warn("Checkout attempted on non-existent cart {}", shoppingCartId);
+        return new ResponseEntity<>(
+            Map.of("error", "NOT_FOUND", "message", "Cart not found"),
+            HttpStatus.NOT_FOUND);
+      }
+
+      // NEW: Deserialize cart from JSON
+      ShoppingCart cart = objectMapper.readValue(cartJson, ShoppingCart.class);
+
+      // =================================================================
+      // RABBITMQ LOGIC
+      // =================================================================
+
       // Step 1: Authorize credit card
       logger.info("Authorizing payment for cart {}", shoppingCartId);
       RestTemplate restTemplate = new RestTemplate();
@@ -165,10 +217,9 @@ public class ShoppingCartController {
       }
 
     } catch (Exception e) {
-      logger.error("Error calling Credit Card Authorizer: {}", e.getMessage());
+      logger.error("Error during checkout: {}", e.getMessage());
       return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-          .body(Map.of("error", "SERVICE_UNAVAILABLE",
-              "message", "Could not reach Credit Card Authorizer"));
+          .body(Map.of("error", "SERVICE_ERROR", "message", "Could not complete checkout"));
     }
   }
 
