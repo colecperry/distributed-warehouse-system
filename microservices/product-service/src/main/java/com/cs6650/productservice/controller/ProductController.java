@@ -109,4 +109,15 @@ public class ProductController {
       return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
     }
   }
+
+  /**
+   * Health check endpoint for AWS ALB
+   */
+  @GetMapping("/health")
+  public ResponseEntity<Map<String, String>> health() {
+    return ResponseEntity.ok(Map.of(
+        "status", "UP",
+        "service", "product-service"
+    ));
+  }
 }
