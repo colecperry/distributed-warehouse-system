@@ -91,8 +91,10 @@ public class ShoppingCartController {
   }
 
   /**
-   * Add an item to an existing shopping cart.
-   * Now reads/writes cart from/to database instead of HashMap.
+   * Add an item to a shopping cart.
+   *
+   * If the cart doesn't exist, we automatically create it (per assignment requirements).
+   * This handles the case where a customer adds an item before explicitly creating a cart.
    */
   @PostMapping("/shopping-carts/{shoppingCartId}/addItem")
   public ResponseEntity<Void> addItem(@PathVariable Integer shoppingCartId, @RequestBody CartItem item) {
@@ -111,25 +113,30 @@ public class ShoppingCartController {
     }
 
     try {
-      // NEW: Read cart from database
+      // Try to read cart from database
       String cartJson = database.get("cart_" + shoppingCartId);
+      ShoppingCart cart;
 
       if (cartJson == null) {
-        logger.warn("Attempted to add item to non-existent cart {}", shoppingCartId);
-        return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        // Cart doesn't exist - create it automatically
+        logger.info("Cart {} doesn't exist, auto-creating cart", shoppingCartId);
+        cart = new ShoppingCart();
+        cart.setShoppingCartId(shoppingCartId);
+        cart.setCustomerId(0);  // Unknown customer (no customer_id provided in addItem request)
+      } else {
+        // Cart exists - deserialize it
+        cart = objectMapper.readValue(cartJson, ShoppingCart.class);
       }
 
-      // NEW: Deserialize cart from JSON
-      ShoppingCart cart = objectMapper.readValue(cartJson, ShoppingCart.class);
-
-      // Add item to cart (same as before)
+      // Add the new item to the cart
       cart.getItems().add(item);
 
-      // NEW: Save updated cart back to database
+      // Save updated cart back to database
       String updatedCartJson = objectMapper.writeValueAsString(cart);
       database.put("cart_" + shoppingCartId, updatedCartJson);
 
-      logger.info("Added {} x product {} to cart {}", item.getQuantity(), item.getProductId(), shoppingCartId);
+      logger.info("Added {} x product {} to cart {}",
+          item.getQuantity(), item.getProductId(), shoppingCartId);
       return new ResponseEntity<>(HttpStatus.NO_CONTENT);
 
     } catch (Exception e) {
