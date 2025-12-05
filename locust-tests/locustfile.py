@@ -41,19 +41,19 @@ class ECommerceCustomer(HttpUser):
     Initialize customer session when user starts.
     Called once per simulated user.
     """
-    self.customer_id = f"customer_{fake.uuid4()[:8]}"
+    self.customer_id = random.randint(1000, 9999)
     self.cart_id = None
     self.items_in_cart = []
     self.total_items_added = 0
 
-    logger.info(f"🛍️  New customer session started: {self.customer_id}")
+    logger.info(f"New customer session started: {self.customer_id}")
 
   def on_stop(self):
     """
     Cleanup when user stops.
     Called once when simulated user ends.
     """
-    logger.info(f"👋 Customer {self.customer_id} ended session. "
+    logger.info(f"Customer {self.customer_id} ended session. "
                 f"Items added: {self.total_items_added}, "
                 f"Completed checkout: {self.cart_id is None}")
 
@@ -91,27 +91,34 @@ class ECommerceCustomer(HttpUser):
         response.failure(f"Product {product_id} not found")
         return
 
-      product_data = response.json()
-      product_name = product_data.get("name", f"Product {product_id}")
+      try:
+        product_data = response.json()
+        product_name = product_data.get("sku", f"Product {product_id}")
+      except:
+        product_name = f"Product {product_id}"
 
     # STEP 2: Check warehouse inventory (reserve)
     with self.client.post(
-        "/warehouse/reserve",
+        "/reserve",
         json={
           "product_id": product_id,
           "quantity": quantity
         },
         catch_response=True,
-        name="POST /warehouse/reserve"
+        name="POST /reserve"
     ) as response:
       if response.status_code == 200:
         # Warehouse has inventory - proceed to add to cart
-        logger.debug(f"✓ Warehouse reserved {quantity}x {product_name}")
-      elif response.status_code == 409:
-        # Out of stock (expected ~10% of time)
-        response.success()  # Don't count as failure
-        logger.info(f"⚠️  Out of stock: {product_name}")
-        return
+        try:
+          result = response.json()
+          available = result.get("available", "no")
+          if available == "no":
+            response.success()  # Don't count as failure
+            logger.info(f"Out of stock: {product_name}")
+            return
+          logger.debug(f"✓ Warehouse reserved {quantity}x {product_name}")
+        except:
+          logger.debug(f"✓ Warehouse check passed for {product_name}")
       else:
         response.failure(f"Warehouse check failed: {response.status_code}")
         return
@@ -120,53 +127,48 @@ class ECommerceCustomer(HttpUser):
     if not self.cart_id:
       # Create new cart
       cart_data = {
-        "customer_id": self.customer_id,
-        "items": [{
-          "product_id": product_id,
-          "quantity": quantity
-        }]
+        "customer_id": self.customer_id
       }
 
       with self.client.post(
-          "/cart",
+          "/shopping-cart",
           json=cart_data,
           catch_response=True,
-          name="POST /cart (create)"
+          name="POST /shopping-cart (create)"
       ) as response:
         if response.status_code == 201:
-          result = response.json()
-          self.cart_id = result.get("cart_id")
-          self.items_in_cart.append({
-            "product_id": product_id,
-            "quantity": quantity,
-            "name": product_name
-          })
-          self.total_items_added += 1
-          logger.info(f"🛒 Created cart {self.cart_id}, "
-                      f"added {quantity}x {product_name}")
+          try:
+            result = response.json()
+            self.cart_id = result.get("shopping_cart_id")
+            self.total_items_added += 1
+            logger.info(f"Created cart {self.cart_id}, "
+                        f"adding {quantity}x {product_name}")
+          except:
+            response.failure("Failed to parse cart response")
         else:
           response.failure(f"Failed to create cart: {response.status_code}")
-    else:
-      # Add to existing cart
-      with self.client.post(
-          f"/cart/{self.cart_id}/items",
-          json={
-            "product_id": product_id,
-            "quantity": quantity
-          },
-          catch_response=True,
-          name="POST /cart/[id]/items"
-      ) as response:
-        if response.status_code == 200:
-          self.items_in_cart.append({
-            "product_id": product_id,
-            "quantity": quantity,
-            "name": product_name
-          })
-          self.total_items_added += 1
-          logger.info(f"🛒 Added {quantity}x {product_name} to cart {self.cart_id}")
-        else:
-          response.failure(f"Failed to add to cart: {response.status_code}")
+          return
+
+    # Add to existing cart
+    with self.client.post(
+        f"/shopping-carts/{self.cart_id}/addItem",
+        json={
+          "productId": product_id,
+          "quantity": quantity
+        },
+        catch_response=True,
+        name="POST /shopping-carts/[id]/addItem"
+    ) as response:
+      if response.status_code == 204:
+        self.items_in_cart.append({
+          "product_id": product_id,
+          "quantity": quantity,
+          "name": product_name
+        })
+        self.total_items_added += 1
+        logger.info(f"Added {quantity}x {product_name} to cart {self.cart_id}")
+      else:
+        response.failure(f"Failed to add to cart: {response.status_code}")
 
   @task(3)  # Weight: 3 (happens less frequently)
   def checkout(self):
@@ -198,7 +200,7 @@ class ECommerceCustomer(HttpUser):
 
     # Realistic cart abandonment (30%)
     if random.random() < 0.3:
-      logger.info(f"🚪 Customer {self.customer_id} abandoned cart {self.cart_id} "
+      logger.info(f"Customer {self.customer_id} abandoned cart {self.cart_id} "
                   f"with {len(self.items_in_cart)} items")
       # Reset for new session
       self.cart_id = None
@@ -210,11 +212,7 @@ class ECommerceCustomer(HttpUser):
 
     # STEP 1: Authorize credit card
     credit_card_data = {
-      "customer_id": self.customer_id,
-      "credit_card_number": "1234-5678-9012-3456",  # Test card format
-      "amount": total_amount,
-      "cvv": "123",
-      "expiry": "12/26"
+      "credit_card_number": "1234-5678-9012-3456"  # Test card format
     }
 
     with self.client.post(
@@ -225,14 +223,11 @@ class ECommerceCustomer(HttpUser):
     ) as response:
       if response.status_code == 200:
         # Payment approved
-        result = response.json()
-        transaction_id = result.get("transactionId", "unknown")
-        logger.info(f"💳 Payment approved: ${total_amount:.2f} "
-                    f"(txn: {transaction_id})")
+        logger.info(f"Payment approved: ${total_amount:.2f}")
       elif response.status_code == 402:
         # Payment declined (expected ~10% of time)
         response.success()  # Don't count as failure
-        logger.info(f"❌ Payment declined for cart {self.cart_id} "
+        logger.info(f"Payment declined for cart {self.cart_id} "
                     f"(${total_amount:.2f})")
         # Keep cart for retry (realistic behavior)
         return
@@ -243,29 +238,29 @@ class ECommerceCustomer(HttpUser):
     # STEP 2: Ship items from warehouse
     for item in self.items_in_cart:
       with self.client.post(
-          "/warehouse/ship",
+          "/ship",
           json={
             "product_id": item["product_id"],
             "quantity": item["quantity"]
           },
           catch_response=True,
-          name="POST /warehouse/ship"
+          name="POST /ship"
       ) as response:
         if response.status_code == 200:
-          logger.debug(f"📦 Shipped {item['quantity']}x {item['name']}")
+          logger.debug(f"Shipped {item['quantity']}x {item['name']}")
         else:
           response.failure(f"Shipping failed: {response.status_code}")
           return
 
     # STEP 3: Complete checkout (update cart status)
     with self.client.post(
-        f"/cart/{self.cart_id}/checkout",
-        json={"transaction_id": transaction_id},
+        f"/shopping-carts/{self.cart_id}/checkout",
+        json={"credit_card_number": "1234-5678-9012-3456"},
         catch_response=True,
-        name="POST /cart/[id]/checkout"
+        name="POST /shopping-carts/[id]/checkout"
     ) as response:
       if response.status_code == 200:
-        logger.info(f"✅ Checkout complete! Cart {self.cart_id}, "
+        logger.info(f"Checkout complete! Cart {self.cart_id}, "
                     f"{len(self.items_in_cart)} items, "
                     f"${total_amount:.2f}")
       else:
@@ -286,7 +281,7 @@ def on_request(request_type, name, response_time, response_length, exception, **
   Log slow requests for debugging.
   """
   if response_time > 2000:  # > 2 seconds
-    logger.warning(f"⏱️  SLOW REQUEST: {name} took {response_time:.0f}ms")
+    logger.warning(f"SLOW REQUEST: {name} took {response_time:.0f}ms")
 
 
 @events.test_start.add_listener
@@ -295,9 +290,9 @@ def on_test_start(environment, **kwargs):
   Called when load test starts.
   """
   logger.info("=" * 60)
-  logger.info("🚀 Load test starting...")
-  logger.info(f"📍 Target: {environment.host}")
-  logger.info(f"👥 Users will spawn at configured rate")
+  logger.info("Load test starting...")
+  logger.info(f"Target: {environment.host}")
+  logger.info(f"Users will spawn at configured rate")
   logger.info("=" * 60)
 
 
@@ -310,10 +305,10 @@ def on_test_stop(environment, **kwargs):
   stats = environment.stats
 
   logger.info("=" * 60)
-  logger.info("🏁 Load test completed!")
-  logger.info(f"📊 Total requests: {stats.total.num_requests}")
-  logger.info(f"❌ Failed requests: {stats.total.num_failures}")
-  logger.info(f"📈 Requests/sec: {stats.total.total_rps:.2f}")
-  logger.info(f"⏱️  Average response time: {stats.total.avg_response_time:.0f}ms")
-  logger.info(f"⏱️  Median response time: {stats.total.median_response_time:.0f}ms")
+  logger.info("Load test completed!")
+  logger.info(f"Total requests: {stats.total.num_requests}")
+  logger.info(f"Failed requests: {stats.total.num_failures}")
+  logger.info(f"Requests/sec: {stats.total.total_rps:.2f}")
+  logger.info(f"Average response time: {stats.total.avg_response_time:.0f}ms")
+  logger.info(f"Median response time: {stats.total.median_response_time:.0f}ms")
   logger.info("=" * 60)
