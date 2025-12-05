@@ -12,7 +12,7 @@ COPY src ./src
 RUN mvn clean package -DskipTests
 
 # Stage 2: Run the application
-FROM openjdk:17.0.1-jdk-slim
+FROM eclipse-temurin:17-jre-jammy
 
 # Create non-root user for security
 RUN addgroup --system spring && adduser --system --group spring
@@ -31,7 +31,7 @@ USER spring
 ENV JAVA_OPTS="-Xmx512m -Xms256m"
 
 # Expose port
-EXPOSE 8080
+EXPOSE 8083
 
 # Run the application
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]

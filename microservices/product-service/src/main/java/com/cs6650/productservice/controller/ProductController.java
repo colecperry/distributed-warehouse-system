@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @Slf4j
 @RestController
+@RequestMapping("/products")
 public class ProductController {
 
   private final AtomicInteger productIdCounter = new AtomicInteger(1);
@@ -46,6 +47,17 @@ public class ProductController {
       Thread.currentThread().interrupt();
     }
   }
+  /**
+   * Health check endpoint for AWS ALB
+   * GET /products/health
+   */
+  @GetMapping("/health")
+  public ResponseEntity<Map<String, String>> health() {
+    return ResponseEntity.ok(Map.of(
+        "status", "UP",
+        "service", "product-service"
+    ));
+  }
 
   /**
    * Create a new product and store it in the database.
@@ -56,7 +68,7 @@ public class ProductController {
    * @param product The product details from the request body
    * @return 201 Created with the new product_id, or 500 if database fails
    */
-  @PostMapping("/product")
+  @PostMapping("")
   public ResponseEntity<Map<String, Integer>> createProduct(@RequestBody Product product) {
     simulateDelay();
 
@@ -88,7 +100,7 @@ public class ProductController {
    * @param productId The ID of the product to retrieve
    * @return 200 OK with product data, 404 if not found, or 500 if database fails
    */
-  @GetMapping("/products/{productId}")
+  @GetMapping("/{productId}")
   public ResponseEntity<Product> getProduct(@PathVariable Integer productId) {
     simulateDelay();
 
@@ -110,14 +122,4 @@ public class ProductController {
     }
   }
 
-  /**
-   * Health check endpoint for AWS ALB
-   */
-  @GetMapping("/health")
-  public ResponseEntity<Map<String, String>> health() {
-    return ResponseEntity.ok(Map.of(
-        "status", "UP",
-        "service", "product-service"
-    ));
-  }
 }

@@ -1,0 +1,267 @@
+version: '3.8'
+
+# ==========================================
+# CS6650 Assignment 5 - Full System
+# Database: 5 nodes (ports 9080-9084)
+# Microservices: 4 services (ports 8081-8084)
+# Using ORIGINAL database service names (w1r5-leader, etc.)
+# ==========================================
+
+services:
+  # ==========================================
+  # DATABASE NODES (Assignment 4 - W1R5)
+  # ==========================================
+
+  # Database Leader
+  w1r5-leader:
+    build:
+      context: ./database/leader-follower-w1r5
+      dockerfile: Dockerfile
+    container_name: w1r5-leader
+    ports:
+      - "9080:9080"
+    environment:
+      - PORT=9080
+      - NODE_ID=1
+      - NODE_TYPE=leader
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9080/api/leader/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - ecommerce-network
+
+  # Database Follower 1
+  w1r5-follower1:
+    build:
+      context: ./database/leader-follower-w1r5
+      dockerfile: Dockerfile
+    container_name: w1r5-follower1
+    ports:
+      - "9081:9081"
+    environment:
+      - PORT=9081
+      - NODE_ID=2
+      - NODE_TYPE=follower
+    depends_on:
+      w1r5-leader:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9081/api/follower/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - ecommerce-network
+
+  # Database Follower 2
+  w1r5-follower2:
+    build:
+      context: ./database/leader-follower-w1r5
+      dockerfile: Dockerfile
+    container_name: w1r5-follower2
+    ports:
+      - "9082:9082"
+    environment:
+      - PORT=9082
+      - NODE_ID=3
+      - NODE_TYPE=follower
+    depends_on:
+      w1r5-leader:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9082/api/follower/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - ecommerce-network
+
+  # Database Follower 3
+  w1r5-follower3:
+    build:
+      context: ./database/leader-follower-w1r5
+      dockerfile: Dockerfile
+    container_name: w1r5-follower3
+    ports:
+      - "9083:9083"
+    environment:
+      - PORT=9083
+      - NODE_ID=4
+      - NODE_TYPE=follower
+    depends_on:
+      w1r5-leader:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9083/api/follower/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - ecommerce-network
+
+  # Database Follower 4
+  w1r5-follower4:
+    build:
+      context: ./database/leader-follower-w1r5
+      dockerfile: Dockerfile
+    container_name: w1r5-follower4
+    ports:
+      - "9084:9084"
+    environment:
+      - PORT=9084
+      - NODE_ID=5
+      - NODE_TYPE=follower
+    depends_on:
+      w1r5-leader:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9084/api/follower/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - ecommerce-network
+
+  # ==========================================
+  # MICROSERVICES (Assignment 5)
+  # ==========================================
+
+  # Warehouse Service (Port 8081)
+  warehouse-service:
+    build:
+      context: ./microservices/warehouse-service
+      dockerfile: Dockerfile
+    container_name: warehouse-service
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - JAVA_OPTS=-Xmx512m -Xms256m
+      - SERVER_PORT=8081
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/warehouse/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - ecommerce-network
+
+  # Credit Card Service (Port 8082)
+  credit-card-service:
+    build:
+      context: ./microservices/credit-card-service
+      dockerfile: Dockerfile
+    container_name: credit-card-service
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - JAVA_OPTS=-Xmx512m -Xms256m
+      - SERVER_PORT=8082
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/credit-card-authorizer/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - ecommerce-network
+
+  # Product Service (Port 8083)
+  product-service:
+    build:
+      context: ./microservices/product-service
+      dockerfile: Dockerfile
+    container_name: product-service
+    ports:
+      - "8083:8083"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - JAVA_OPTS=-Xmx512m -Xms256m
+      - DATABASE_URL=http://w1r5-leader:9080
+      - SERVER_PORT=8083
+    depends_on:
+      w1r5-leader:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8083/products/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - ecommerce-network
+
+  # Shopping Cart Service (Port 8084)
+  shopping-cart-service:
+    build:
+      context: ./microservices/shopping-cart-service
+      dockerfile: Dockerfile
+    container_name: shopping-cart-service
+    ports:
+      - "8084:8084"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - JAVA_OPTS=-Xmx512m -Xms256m
+      - DATABASE_URL=http://w1r5-leader:9080
+      - CREDIT_CARD_AUTHORIZER_URL=http://credit-card-service:8082/credit-card-authorizer/authorize
+      - SERVER_PORT=8084
+    depends_on:
+      w1r5-leader:
+        condition: service_healthy
+      credit-card-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8084/cart/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - ecommerce-network
+
+# ==========================================
+# Network Configuration
+# ==========================================
+networks:
+  ecommerce-network:
+    driver: bridge
+
+# ==========================================
+# Usage Instructions:
+#
+# Start all services (9 containers total):
+#   docker-compose up --build
+#
+# Start in background:
+#   docker-compose up -d --build
+#
+# View logs:
+#   docker-compose logs -f [service-name]
+#
+# Check all services:
+#   docker-compose ps
+#
+# Stop all services:
+#   docker-compose down
+#
+# Stop and remove volumes:
+#   docker-compose down -v
+# ==========================================

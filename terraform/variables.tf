@@ -151,8 +151,8 @@ variable "service_ports" {
   default = {
     credit-card-service    = 8082
     warehouse-service      = 8081
-    product-service        = 8080
-    shopping-cart-service  = 8083
+    product-service        = 8083
+    shopping-cart-service  = 8084
   }
 }
 
