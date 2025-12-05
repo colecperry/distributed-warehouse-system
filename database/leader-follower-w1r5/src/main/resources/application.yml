@@ -7,11 +7,10 @@ node:
   id: ${NODE_ID:1}
   type: ${NODE_TYPE:leader}
 
-  # Node URLs - Updated for Assignment 5
   # Using new Docker service names and port range 9080-9084
   nodes:
-    - http://db-leader:9080
-    - http://db-follower1:9081
-    - http://db-follower2:9082
-    - http://db-follower3:9083
-    - http://db-follower4:9084
+    - http://w1r5-leader:9080
+    - http://w1r5-follower1:9081
+    - http://w1r5-follower2:9082
+    - http://w1r5-follower3:9083
+    - http://w1r5-follower4:9084

@@ -221,11 +221,17 @@ services:
       - JAVA_OPTS=-Xmx512m -Xms256m
       - DATABASE_URL=http://w1r5-leader:9080
       - CREDIT_CARD_AUTHORIZER_URL=http://credit-card-service:8082/credit-card-authorizer/authorize
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USERNAME=admin
+      - RABBITMQ_PASSWORD=admin
       - SERVER_PORT=8084
     depends_on:
       w1r5-leader:
         condition: service_healthy
       credit-card-service:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8084/cart/health"]
@@ -233,6 +239,28 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    restart: unless-stopped
+    networks:
+      - ecommerce-network
+
+  # ==========================================
+  # RabbitMQ Message Broker (for Shopping Cart -> Warehouse)
+  # ==========================================
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"   # AMQP protocol port
+      - "15672:15672" # Management UI
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=admin
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
     networks:
       - ecommerce-network
