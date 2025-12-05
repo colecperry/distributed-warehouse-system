@@ -187,7 +187,7 @@ resource "aws_lb_listener_rule" "warehouse" {
 
   condition {
     path_pattern {
-      values = ["/warehouse/*"]
+      values = ["/reserve", "/ship", "/warehouse/health"]
     }
   }
 
@@ -229,7 +229,7 @@ resource "aws_lb_listener_rule" "cart" {
 
   condition {
     path_pattern {
-      values = ["/cart/*"]
+      values = ["/shopping-cart", "/shopping-cart/*", "/cart/health"]
     }
   }
 
