@@ -213,6 +213,56 @@ resource "aws_security_group" "ecs_tasks" {
 }
 
 # ==========================================
+# Database Security Group
+# ==========================================
+
+resource "aws_security_group" "database" {
+  name        = "${var.project_name}-database-sg"
+  description = "Security group for database nodes (leader + followers)"
+  vpc_id      = aws_vpc.main.id
+
+  # Allow traffic from ALB (for leader)
+  ingress {
+    description     = "Traffic from ALB to Leader"
+    from_port       = 9080
+    to_port         = 9080
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  # Allow traffic from ECS tasks (microservices need to read/write)
+  ingress {
+    description     = "Traffic from microservices"
+    from_port       = 9080
+    to_port         = 9084
+    protocol        = "tcp"
+    security_groups = [aws_security_group.ecs_tasks.id]
+  }
+
+  # Allow database nodes to talk to each other (leader -> followers replication)
+  ingress {
+    description = "Inter-database communication"
+    from_port   = 9080
+    to_port     = 9084
+    protocol    = "tcp"
+    self        = true
+  }
+
+  # Allow all outbound traffic
+  egress {
+    description = "All outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-database-sg"
+  }
+}
+
+# ==========================================
 # Outputs
 # ==========================================
 

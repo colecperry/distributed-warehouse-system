@@ -208,7 +208,7 @@ resource "aws_lb_listener_rule" "product" {
 
   condition {
     path_pattern {
-      values = ["/products/*"]
+      values = ["/products/*", "/products"]
     }
   }
 
@@ -229,7 +229,7 @@ resource "aws_lb_listener_rule" "cart" {
 
   condition {
     path_pattern {
-      values = ["/shopping-cart", "/shopping-cart/*", "/cart/health"]
+      values = ["/shopping-cart", "/shopping-cart/*", "/shopping-carts/*","/cart/health"]
     }
   }
 
@@ -259,5 +259,59 @@ output "target_group_arns" {
     warehouse   = aws_lb_target_group.warehouse.arn
     product     = aws_lb_target_group.product.arn
     cart        = aws_lb_target_group.cart.arn
+  }
+}
+
+# ==========================================
+# Database Leader Target Group
+# ==========================================
+
+resource "aws_lb_target_group" "database_leader" {
+  name        = "${var.project_name}-db-leader-tg"
+  port        = 9080
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip"
+
+  health_check {
+    enabled             = true
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    timeout             = 5
+    interval            = 30
+    path                = "/api/leader/health"
+    protocol            = "HTTP"
+    matcher             = "200"
+  }
+
+  deregistration_delay = 30
+
+  tags = {
+    Name = "${var.project_name}-db-leader-tg"
+  }
+}
+
+# ==========================================
+# ALB Listener Rule for Database Leader
+# ==========================================
+
+# Route /api/* to Database Leader (highest priority to catch database calls)
+resource "aws_lb_listener_rule" "database_leader" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 50  # Higher priority than other services
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.database_leader.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/api/*"]
+    }
+  }
+
+  tags = {
+    Name = "${var.project_name}-db-leader-rule"
   }
 }

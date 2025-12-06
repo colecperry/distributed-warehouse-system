@@ -103,30 +103,30 @@ variable "max_capacity" {
 
 # Credit Card Service - CPU based scaling
 variable "credit_card_cpu_target" {
-  description = "Target CPU utilization for credit card service"
+  description = "Target CPU utilization for credit card service. Lowered from 70% because Thread.sleep() delays don't consume CPU - we scale based on request concurrency rather than raw CPU usage."
   type        = number
-  default     = 70
+  default     = 35  # Lowered to trigger scaling with I/O-bound workload
 }
 
 # Warehouse Service - Memory based scaling
 variable "warehouse_memory_target" {
-  description = "Target memory utilization for warehouse service"
+  description = "Target memory utilization for warehouse service. Adjusted to balance with CPU thresholds and trigger scaling based on thread/connection overhead."
   type        = number
-  default     = 75
+  default     = 50  # Balanced with CPU thresholds
 }
 
 # Product Service - CPU based scaling
 variable "product_cpu_target" {
-  description = "Target CPU utilization for product service"
+  description = "Target CPU utilization for product service. Lowered from 70% because read operations with simulated delays are I/O-bound rather than CPU-bound."
   type        = number
-  default     = 70
+  default     = 35  # Lowered to trigger scaling with I/O-bound workload
 }
 
 # Shopping Cart Service - Memory based scaling
 variable "cart_memory_target" {
-  description = "Target memory utilization for shopping cart service"
+  description = "Target memory utilization for shopping cart service. Cart service maintains session state and database connections, triggering memory pressure before CPU exhaustion."
   type        = number
-  default     = 75
+  default     = 50  # Balanced with CPU thresholds
 }
 
 variable "scale_in_cooldown" {
@@ -157,13 +157,37 @@ variable "service_ports" {
 }
 
 # ==========================================
+# RabbitMQ Configuration (Amazon MQ)
+# ==========================================
+
+variable "rabbitmq_username" {
+  description = "RabbitMQ admin username"
+  type        = string
+  default     = "admin"
+  sensitive   = true
+}
+
+variable "rabbitmq_password" {
+  description = "RabbitMQ admin password"
+  type        = string
+  default     = "SecurePassword123!"
+  sensitive   = true
+}
+
+variable "rabbitmq_instance_type" {
+  description = "EC2 instance type for RabbitMQ server"
+  type        = string
+  default     = "t3.small"  # Small and cheap for testing
+}
+
+# ==========================================
 # Database Variables (from Assignment 4)
 # ==========================================
 
 variable "database_url" {
   description = "Database connection URL for services that need it"
   type        = string
-  default     = "placeholder-will-be-set-from-db-module"
+  default     = "http://67.183.146.91:9080"  // Replace with your laptop's IP
 }
 
 # ==========================================

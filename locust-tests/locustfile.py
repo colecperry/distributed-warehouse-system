@@ -9,9 +9,10 @@ from locust import HttpUser, task, between, events
 from faker import Faker
 import random
 import logging
+import requests
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging - Only show warnings and errors
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Initialize Faker for generating test data
@@ -63,7 +64,7 @@ class ECommerceCustomer(HttpUser):
     USE CASE 1: Customer Adds Item to Shopping Cart
 
     Steps (from Assignment 5):
-    1. Customer selects a product (random from 1-1000)
+    1. Customer selects a product (random from 1-100)
     2. Customer chooses quantity (log-normal: mostly 1-3, rarely 10+)
     3. System checks warehouse has sufficient quantity
     4. System adds item to cart
@@ -78,8 +79,8 @@ class ECommerceCustomer(HttpUser):
     quantity = max(1, int(random.lognormvariate(0.5, 0.5)))
     quantity = min(quantity, 20)  # Cap at 20 for sanity
 
-    # Random product from 1000 products (loaded in Assignment 4)
-    product_id = random.randint(1, 1000)
+    # Random product from 100 products (pre-loaded in test setup)
+    product_id = random.randint(1, 100)
 
     # STEP 1: Get product details
     with self.client.get(
@@ -288,11 +289,12 @@ def on_request(request_type, name, response_time, response_length, exception, **
 def on_test_start(environment, **kwargs):
   """
   Called when load test starts.
+  NOTE: Products must be pre-loaded using load_products.py before running this test!
   """
   logger.info("=" * 60)
-  logger.info("Load test starting...")
+  logger.info("STARTING LOAD TEST...")
   logger.info(f"Target: {environment.host}")
-  logger.info(f"Users will spawn at configured rate")
+  logger.warning("⚠ IMPORTANT: Ensure load_products.py was run first!")
   logger.info("=" * 60)
 
 
