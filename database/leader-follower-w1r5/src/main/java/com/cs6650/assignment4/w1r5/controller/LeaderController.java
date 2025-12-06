@@ -10,9 +10,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.List;
-import java.util.ArrayList;
 
 /**
  * LeaderController handles client requests to the Leader node.
@@ -29,10 +26,6 @@ public class LeaderController {
     private final LeaderService leaderService;
     private final NodeConfig nodeConfig;
     private final ReadCoordinator readCoordinator;
-
-    // Store registered follower IPs
-    private final ConcurrentHashMap<Integer, String> registeredFollowers = new ConcurrentHashMap<>();
-    private static final int EXPECTED_FOLLOWERS = 4;  // We expect 4 followers
 
     @Autowired
     public LeaderController(LeaderService leaderService, NodeConfig nodeConfig,
@@ -178,70 +171,5 @@ public class LeaderController {
     public ResponseEntity<String> abortTransaction() {
         System.out.println("Transaction ABORTED");
         return ResponseEntity.ok("Transaction aborted");
-    }
-    // ==========================================
-    // FOLLOWER REGISTRATION (Assignment 5 - AWS Deployment)
-    // ==========================================
-
-    /**
-     * Follower registration endpoint.
-     * Followers call this when they start up to register their IP address.
-     *
-     * POST /api/leader/register
-     * Body: {"nodeId": 2, "ipAddress": "10.0.11.123", "port": 9081}
-     * Response: 200 OK
-     */
-    @PostMapping("/leader/register")
-    public ResponseEntity<String> registerFollower(@RequestBody Map<String, Object> body) {
-      if (!nodeConfig.isLeader()) {
-        return ResponseEntity
-            .status(HttpStatus.BAD_REQUEST)
-            .body("Error: Only the Leader can accept registrations.");
-      }
-
-      try {
-        Integer nodeId = (Integer) body.get("nodeId");
-        String ipAddress = (String) body.get("ipAddress");
-        Integer port = (Integer) body.get("port");
-
-        if (nodeId == null || ipAddress == null || port == null) {
-          return ResponseEntity
-              .status(HttpStatus.BAD_REQUEST)
-              .body("Error: Missing nodeId, ipAddress, or port");
-        }
-
-        // Build the full URL
-        String followerUrl = "http://" + ipAddress + ":" + port;
-
-        // Register with both the controller AND the service
-        registeredFollowers.put(nodeId, followerUrl);
-        leaderService.registerFollower(nodeId, followerUrl);  // ADD THIS LINE!
-
-        System.out.println("✅ Registered Follower " + nodeId + " at " + followerUrl +
-            " (" + registeredFollowers.size() + "/" + EXPECTED_FOLLOWERS + " followers)");
-
-        return ResponseEntity.ok("Follower " + nodeId + " registered successfully");
-
-      } catch (Exception e) {
-        return ResponseEntity
-            .status(HttpStatus.BAD_REQUEST)
-            .body("Error registering follower: " + e.getMessage());
-      }
-    }
-
-    /**
-     * Get list of registered followers (for debugging/monitoring).
-     *
-     * GET /api/leader/followers
-     * Response: List of follower URLs
-     */
-    @GetMapping("/leader/followers")
-    public ResponseEntity<?> getRegisteredFollowers() {
-      Map<String, Object> response = new java.util.HashMap<>();
-      response.put("expectedFollowers", EXPECTED_FOLLOWERS);
-      response.put("registeredFollowers", leaderService.getRegisteredFollowerCount());  // CHANGED
-      response.put("followers", registeredFollowers);
-
-      return ResponseEntity.ok(response);
     }
 }

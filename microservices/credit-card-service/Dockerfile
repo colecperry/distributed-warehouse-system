@@ -1,50 +1,49 @@
 # ===============================
-# Multi-stage build for Credit Card Authorizer
+# Stage 1: Build stage using Maven
 # ===============================
+FROM maven:3.9-eclipse-temurin-17 AS builder
 
-# Build stage
-FROM maven:3.9-eclipse-temurin-17 AS build
-WORKDIR /build
+# Set working directory inside the container
+WORKDIR /app
 
-# Copy POM and download dependencies (cached layer)
-COPY pom.xml /build/pom.xml
-RUN mvn dependency:go-offline -B || true
+# Copy Maven configuration to leverage Docker cache for dependencies
+COPY pom.xml .
+
+# Download dependencies (cached layer)
+RUN mvn dependency:go-offline
 
 # Copy source code
-COPY src /build/src
+COPY src ./src
 
-# Build the application
+# Build the JAR (skip tests for faster build)
 RUN mvn clean package -DskipTests
 
 # ===============================
-# Runtime stage
+# Stage 2: Runtime stage
 # ===============================
-FROM amazoncorretto:17-alpine
+FROM openjdk:17-jdk-slim
+
+# Create non-root user for security
+RUN addgroup --gid 1000 spring \
+    && adduser --uid 1000 --gid 1000 --shell /bin/sh --disabled-password --gecos "" spring
+
+# Set working directory
 WORKDIR /app
 
-# Create non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# Copy the JAR from the builder stage
+COPY --from=builder /app/target/*.jar app.jar
 
-# Copy JAR from build stage
-COPY --from=build /build/target/*.jar app.jar
-
-# Change ownership
-RUN chown appuser:appgroup app.jar
+# Adjust ownership to non-root user
+RUN chown -R spring:spring /app
 
 # Switch to non-root user
-USER appuser:appgroup
+USER spring
 
-# Expose port
+# Expose the application port (optional but helpful)
 EXPOSE 8082
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:8082/credit-card-authorizer/health || exit 1
+# JVM memory settings (tweak as needed)
+ENV JAVA_OPTS="-Xmx512m -Xms256m"
 
-# Run application with container-optimized JVM settings
-ENTRYPOINT ["java", \
-    "-XX:+UseContainerSupport", \
-    "-XX:MaxRAMPercentage=75.0", \
-    "-Djava.security.egd=file:/dev/./urandom", \
-    "-jar", \
-    "app.jar"]
+# Run the application
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]

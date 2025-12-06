@@ -21,7 +21,7 @@ RUN mvn clean package -DskipTests
 # ===============================
 # Stage 2: Runtime stage
 # ===============================
-FROM eclipse-temurin:17-jre-jammy
+FROM openjdk:17-jdk-slim
 
 # Create non-root user for security
 RUN addgroup --gid 1000 spring \
@@ -40,7 +40,7 @@ RUN chown -R spring:spring /app
 USER spring
 
 # Expose the application port (optional but helpful)
-EXPOSE 8084
+EXPOSE 8081
 
 # JVM memory settings (tweak as needed)
 ENV JAVA_OPTS="-Xmx512m -Xms256m"

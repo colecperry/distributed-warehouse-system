@@ -71,7 +71,7 @@ public class ReadCoordinator {
         // Step 2: Read from all 4 Followers in parallel
         List<Future<KeyValue>> futures = new ArrayList<>();
 
-        for (String followerUrl : leaderService.getRegisteredFollowerUrls()) {
+        for (String followerUrl : nodeConfig.getFollowerUrls()) {
             // Submit a task to read from this Follower
             Future<KeyValue> future = executor.submit(() ->
                 readFromFollower(followerUrl, key)

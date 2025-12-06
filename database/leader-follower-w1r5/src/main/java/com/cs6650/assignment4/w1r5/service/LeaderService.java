@@ -8,9 +8,6 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.List;
-import java.util.ArrayList;
-
 
 /**
  * LeaderService handles writes for the Leader node in W=1, R=5 strategy.
@@ -33,30 +30,12 @@ public class LeaderService {
     // HTTP client (to send requests to Followers)
     private final RestTemplate restTemplate;
 
-    // Store for registered follower URLs
-    private final ConcurrentHashMap<Integer, String> registeredFollowers = new ConcurrentHashMap<>();
-
     @Autowired
     public LeaderService(NodeConfig nodeConfig) {
         this.nodeConfig = nodeConfig;
         this.restTemplate = new RestTemplate();
     }
 
-    // Method to register a follower
-    public void registerFollower(Integer nodeId, String followerUrl) {
-      registeredFollowers.put(nodeId, followerUrl);
-      System.out.println("LeaderService: Registered follower " + nodeId + " at " + followerUrl);
-    }
-
-    // Method to get all registered follower URLs
-    public List<String> getRegisteredFollowerUrls() {
-      return new ArrayList<>(registeredFollowers.values());
-    }
-
-    // Method to check how many followers are registered
-    public int getRegisteredFollowerCount() {
-      return registeredFollowers.size();
-    }
     /**
      * Handle write from client (W=1 strategy).
      *
@@ -119,8 +98,8 @@ public class LeaderService {
         new Thread(() -> {
             System.out.println("Starting background replication for: " + kv.getKey());
 
-            // Get URLs of all registered Followers (dynamic list from AWS ECS)
-            for (String followerUrl : getRegisteredFollowerUrls()) {
+            // Get URLs of all 4 Followers
+            for (String followerUrl : nodeConfig.getFollowerUrls()) {
                 try {
                     // Send replication to this Follower
                     sendReplicationToFollower(followerUrl, kv);
