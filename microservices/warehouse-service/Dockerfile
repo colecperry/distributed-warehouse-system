@@ -13,6 +13,6 @@ WORKDIR /app
 COPY --from=builder /app/target/*.jar app.jar
 RUN chown -R spring:spring /app
 USER spring
-EXPOSE 8081
+EXPOSE 8089
 ENV JAVA_OPTS="-Xmx512m -Xms256m"
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]

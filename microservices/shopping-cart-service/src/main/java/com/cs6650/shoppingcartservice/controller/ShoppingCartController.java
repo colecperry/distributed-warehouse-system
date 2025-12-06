@@ -234,15 +234,4 @@ public class ShoppingCartController {
   public ResponseEntity<String> hello() {
     return ResponseEntity.ok("Hello from Shopping Cart Service!");
   }
-
-  /**
-   * Health check endpoint for AWS ALB
-   */
-  @GetMapping("/cart/health")
-  public ResponseEntity<Map<String, String>> health() {
-    return ResponseEntity.ok(Map.of(
-        "status", "UP",
-        "service", "shopping-cart-service"
-    ));
-  }
 }

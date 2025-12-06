@@ -64,15 +64,4 @@ public class WarehouseController {
   public String hello() {
     return "Hello from Warehouse Service!";
   }
-
-  /**
-   * Health check endpoint for AWS ALB
-   */
-  @GetMapping("/warehouse/health")
-  public ResponseEntity<Map<String, String>> health() {
-    return ResponseEntity.ok(Map.of(
-        "status", "UP",
-        "service", "warehouse-service"
-    ));
-  }
 }
