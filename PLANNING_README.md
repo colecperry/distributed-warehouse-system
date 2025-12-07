@@ -120,3 +120,64 @@ This is a basic skeleton design - please give ideas and change as needed!
 2. Member D needs all services containerized before deploying to AWS
 3. Member A needs Members C & D's services to test complete use cases
 4. Load testing requires all services deployed (Member D + All)
+
+
+---
+
+# CHANGES to assignment 5:
+
+## CHANGE 1: Warehouse Service - NOT New, REUSE from Assignment 3
+### OLD VERSION:
+Build NEW Warehouse service
+Add reserve() endpoint (90% yes, 10% no)
+Add ship() endpoint (always succeeds)
+
+### NEW VERSION:
+REUSE Warehouse service from Assignment 3
+Warehouse reached via RabbitMQ queue (not REST API)
+Warehouse has NO date. ONLY ships (always succeeds)
+NO reserve() endpoint!
+
+---
+
+## CHANGE 2: Use Case 1 - Simplified
+### OLD VERSION:
+Customer → Product → Warehouse.reserve() → Shopping Cart
+
+### NEW VERSION:
+Customer → Product → Shopping Cart
+(No warehouse check when adding to cart!)
+Warehouse only used during checkout (shipping), not when adding to cart
+
+
+### UPDATED USE CASES
+#### Use Case 1: Add Item to Cart (SIMPLIFIED)
+Steps:
+
+* Customer selects product
+* Customer chooses quantity
+* System adds to shopping cart
+* NO warehouse check!
+
+#### Errors:
+
+Create cart if doesn't exist
+Bounds checking on quantity/product ID
+
+
+### Use Case 2: Checkout (SAME)
+#### Steps:
+
+* Customer adds credit card info
+* System begins transaction
+* Credit Card authorizes (90%) or declines (10%)
+* If approved: Send ship message to Warehouse via RabbitMQ
+* System ends transaction
+* If declined: System aborts transaction
+
+---
+
+## CHANGE 3: RabbitMQ Integration
+### NEW VERSION says:
+Warehouse service reached by RabbitMQ queue from Assignment 3
+This means message-based communication, not REST calls
