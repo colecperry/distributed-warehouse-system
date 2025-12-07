@@ -146,8 +146,8 @@ public class ShoppingCartController {
   }
 
   /**
-   * Checkout a shopping cart.
-   * Reads cart from database
+   * Checkout a shopping cart with ACID transaction semantics.
+   * Reads cart from database and processes payment with transaction boundaries.
    */
   @PostMapping("/shopping-carts/{shoppingCartId}/checkout")
   public ResponseEntity<Map<String, Object>> checkout(
@@ -165,12 +165,18 @@ public class ShoppingCartController {
           HttpStatus.BAD_REQUEST);
     }
 
+    // NEW: BEGIN TRANSACTION - Start of atomic checkout operation
+    database.beginTransaction();
+    logger.info("Transaction started for cart {}", shoppingCartId);
+
     try {
-      // NEW: Read cart from database instead of HashMap
+      // Step 1: Read cart from database
       String cartJson = database.get("cart_" + shoppingCartId);
 
       if (cartJson == null) {
         logger.warn("Checkout attempted on non-existent cart {}", shoppingCartId);
+        // NEW: ABORT TRANSACTION - Cart not found
+        database.abortTransaction();
         return new ResponseEntity<>(
             Map.of("error", "NOT_FOUND", "message", "Cart not found"),
             HttpStatus.NOT_FOUND);
@@ -183,7 +189,7 @@ public class ShoppingCartController {
       // RABBITMQ LOGIC
       // =================================================================
 
-      // Step 1: Authorize credit card
+      // Step 2: Authorize credit card
       logger.info("Authorizing payment for cart {}", shoppingCartId);
       RestTemplate restTemplate = new RestTemplate();
       ResponseEntity<Map> response = restTemplate.postForEntity(
@@ -192,13 +198,13 @@ public class ShoppingCartController {
           Map.class
       );
 
-      // Step 2: Check authorization result
+      // Step 3: Check authorization result
       if (response.getStatusCode() == HttpStatus.OK) {
         // Payment authorized - proceed with order
         int orderId = orderIdCounter.getAndIncrement();
         logger.info("Payment authorized for cart {}, created order {}", shoppingCartId, orderId);
 
-        // Step 3: Send order to warehouse (fire-and-forget)
+        // Step 4: Send order to warehouse (fire-and-forget)
         try {
           rabbitMQService.sendOrderToWarehouse(cart);
           logger.info("Sent order {} to warehouse queue", orderId);
@@ -208,23 +214,33 @@ public class ShoppingCartController {
           // Continue - order still created, will handle warehouse issue separately
         }
 
+        // NEW: END TRANSACTION - Successful checkout, commit transaction
+        database.endTransaction();
+        logger.info("Transaction committed for cart {}", shoppingCartId);
+
         return ResponseEntity.ok(Map.of("order_id", orderId));
 
       } else if (response.getStatusCode() == HttpStatus.PAYMENT_REQUIRED) {
         // Payment declined
         logger.warn("Payment declined for cart {}", shoppingCartId);
+        // NEW: ABORT TRANSACTION - Payment was declined
+        database.abortTransaction();
         return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
             .body(Map.of("error", "PAYMENT_DECLINED", "message", "Credit card declined"));
 
       } else {
         // Unexpected response
         logger.error("Unexpected response from CCA: {}", response.getStatusCode());
+        // NEW: ABORT TRANSACTION - Unexpected error
+        database.abortTransaction();
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
             .body(Map.of("error", "INTERNAL_ERROR", "message", "Unexpected error during checkout"));
       }
 
     } catch (Exception e) {
       logger.error("Error during checkout: {}", e.getMessage());
+      // NEW: ABORT TRANSACTION - Exception occurred
+      database.abortTransaction();
       return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
           .body(Map.of("error", "SERVICE_ERROR", "message", "Could not complete checkout"));
     }

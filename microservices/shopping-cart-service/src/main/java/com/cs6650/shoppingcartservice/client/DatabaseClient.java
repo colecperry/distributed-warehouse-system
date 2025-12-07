@@ -89,4 +89,49 @@ public class DatabaseClient {
       return null;
     }
   }
+
+  /**
+   * Begin a transaction (prints message in database).
+   *
+   * Marks the start of an atomic operation in the checkout flow.
+   * The database will print "Transaction STARTED" but doesn't implement real 2-phase commit.
+   */
+  public void beginTransaction() {
+    try {
+      restTemplate.postForEntity(databaseUrl + "/api/transaction/begin", null, String.class);
+      log.info("Transaction STARTED");
+    } catch (Exception e) {
+      log.error("Failed to begin transaction", e);
+    }
+  }
+
+  /**
+   * End a transaction (prints message in database).
+   *
+   * Marks successful completion of an atomic operation.
+   * Called when checkout completes successfully (payment authorized, order created).
+   */
+  public void endTransaction() {
+    try {
+      restTemplate.postForEntity(databaseUrl + "/api/transaction/end", null, String.class);
+      log.info("Transaction COMMITTED");
+    } catch (Exception e) {
+      log.error("Failed to end transaction", e);
+    }
+  }
+
+  /**
+   * Abort a transaction (prints message in database).
+   *
+   * Marks failed operation that should be rolled back.
+   * Called when checkout fails (payment declined, cart not found, errors).
+   */
+  public void abortTransaction() {
+    try {
+      restTemplate.postForEntity(databaseUrl + "/api/transaction/abort", null, String.class);
+      log.info("Transaction ABORTED");
+    } catch (Exception e) {
+      log.error("Failed to abort transaction", e);
+    }
+  }
 }
