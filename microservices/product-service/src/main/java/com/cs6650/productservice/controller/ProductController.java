@@ -73,7 +73,7 @@ public class ProductController {
 
       return ResponseEntity.status(HttpStatus.CREATED)
           .body(Map.of("product_id", newProductId));
-    } catch (Exception e) {
+    } catch (Exception e) { // Catch any exception and return 500
       log.error("Failed to store product", e);
       return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
     }

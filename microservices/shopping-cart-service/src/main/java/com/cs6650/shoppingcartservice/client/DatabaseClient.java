@@ -51,7 +51,7 @@ public class DatabaseClient {
       Map<String, String> request = Map.of("key", key, "value", value);
 
       // Send POST request to database Leader
-      restTemplate.postForEntity(url, request, String.class);
+      restTemplate.postForEntity(url, request, String.class); // serialize request to JSON string
       log.debug("Stored key: {}", key);
 
     } catch (Exception e) {
@@ -76,7 +76,7 @@ public class DatabaseClient {
   public String get(String key) {
     try {
       String url = databaseUrl + "/api/get?key=" + key;
-      ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
+      ResponseEntity<String> response = restTemplate.getForEntity(url, String.class); // Send GET request to database
 
       // Database returns: {"key": "...", "value": "...", "version": 1}
       // We just need the "value" part
@@ -85,8 +85,8 @@ public class DatabaseClient {
 
     } catch (Exception e) {
       // Key doesn't exist or database is down
-      log.debug("Key not found or error: {}", key);
-      return null;
+      log.debug("Key not found or error: {}", key); // Database returns null
+      return null; // Also return null for network errors
     }
   }
 

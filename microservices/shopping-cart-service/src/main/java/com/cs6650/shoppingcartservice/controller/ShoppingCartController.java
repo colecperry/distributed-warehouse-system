@@ -39,11 +39,11 @@ public class ShoppingCartController {
   @Autowired
   private RabbitMQService rabbitMQService;
 
-  // NEW: Database client for storing/retrieving carts
+  // Database client for storing/retrieving carts
   @Autowired
   private DatabaseClient database;
 
-  // NEW: JSON serialization for converting carts to/from JSON strings
+  // JSON serialization for converting carts to/from JSON strings
   @Autowired
   private ObjectMapper objectMapper;
 
@@ -78,8 +78,8 @@ public class ShoppingCartController {
     cart.setCustomerId(customerId);
 
     try {
-      // NEW: Store cart in database as JSON
-      String cartJson = objectMapper.writeValueAsString(cart);
+      // Store cart in database as JSON
+      String cartJson = objectMapper.writeValueAsString(cart); // Convert 
       database.put("cart_" + cartId, cartJson);
 
       logger.info("Created cart {} for customer {}", cartId, customerId);
@@ -165,24 +165,24 @@ public class ShoppingCartController {
           HttpStatus.BAD_REQUEST);
     }
 
-    // NEW: BEGIN TRANSACTION - Start of atomic checkout operation
+    // BEGIN TRANSACTION - Start of atomic checkout operation
     database.beginTransaction();
     logger.info("Transaction started for cart {}", shoppingCartId);
 
     try {
       // Step 1: Read cart from database
-      String cartJson = database.get("cart_" + shoppingCartId);
+      String cartJson = database.get("cart_" + shoppingCartId); // Retrieve the cart from the database
 
       if (cartJson == null) {
         logger.warn("Checkout attempted on non-existent cart {}", shoppingCartId);
-        // NEW: ABORT TRANSACTION - Cart not found
+        // ABORT TRANSACTION - Cart not found
         database.abortTransaction();
         return new ResponseEntity<>(
             Map.of("error", "NOT_FOUND", "message", "Cart not found"),
-            HttpStatus.NOT_FOUND);
+            HttpStatus.NOT_FOUND); // Return 404 Not Found
       }
 
-      // NEW: Deserialize cart from JSON
+      // Deserialize cart from JSON
       ShoppingCart cart = objectMapper.readValue(cartJson, ShoppingCart.class);
 
       // =================================================================
