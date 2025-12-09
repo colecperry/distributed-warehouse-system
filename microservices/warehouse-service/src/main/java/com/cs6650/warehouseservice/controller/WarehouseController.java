@@ -60,6 +60,38 @@ public class WarehouseController {
     ));
   }
 
+  @PostMapping("/check-inventory")
+  public ResponseEntity<Map<String, Object>> checkInventory(@RequestBody Map<String, Integer> request) {
+    simulateDelay();
+
+    Integer productId = request.get("product_id");
+    Integer quantity = request.get("quantity");
+
+    if (productId == null || quantity == null || productId <= 0 || quantity <= 0) {
+      return new ResponseEntity<>(Map.of("error", "INVALID_INPUT"), HttpStatus.BAD_REQUEST);
+    }
+
+    // Simulate inventory check - always return available for now
+    // In a real system, this would check actual inventory levels
+    boolean available = true;
+
+    if (available) {
+      return ResponseEntity.ok(Map.of(
+          "product_id", productId,
+          "quantity", quantity,
+          "available", true
+      ));
+    } else {
+      return ResponseEntity.status(HttpStatus.CONFLICT)
+          .body(Map.of(
+              "product_id", productId,
+              "quantity", quantity,
+              "available", false,
+              "error", "INSUFFICIENT_INVENTORY"
+          ));
+    }
+  }
+
   @GetMapping("/hello")
   public String hello() {
     return "Hello from Warehouse Service!";

@@ -14,3 +14,11 @@ credit:
   card:
     authorizer:
       url: ${CCA_URL:http://localhost:8082/credit-card-authorizer/authorize}
+
+product:
+  service:
+    url: ${PRODUCT_SERVICE_URL:http://localhost:8085}
+
+warehouse:
+  service:
+    url: ${WAREHOUSE_SERVICE_URL:http://localhost:8089}

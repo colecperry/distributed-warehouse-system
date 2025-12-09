@@ -77,10 +77,15 @@ public class DatabaseClient {
       String url = databaseUrl + "/api/get?key=" + key;
       ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
 
+      if (response.getBody() == null) {
+        return null;
+      }
+
       // Database returns: {"key": "...", "value": "...", "version": 1}
       // We just need the "value" part
       JsonNode json = objectMapper.readTree(response.getBody());
-      return json.get("value").asText();
+      JsonNode valueNode = json.get("value");
+      return valueNode != null ? valueNode.asText() : null;
 
     } catch (Exception e) {
       // Key doesn't exist or database is down
