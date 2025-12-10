@@ -59,7 +59,6 @@ public class WarehouseController {
         "status", "shipped"
     ));
   }
-
   @PostMapping("/check-inventory")
   public ResponseEntity<Map<String, Object>> checkInventory(@RequestBody Map<String, Integer> request) {
     simulateDelay();
@@ -95,5 +94,16 @@ public class WarehouseController {
   @GetMapping("/hello")
   public String hello() {
     return "Hello from Warehouse Service!";
+  }
+
+  /**
+   * Health check endpoint for AWS ALB
+   */
+  @GetMapping("/warehouse/health")
+  public ResponseEntity<Map<String, String>> health() {
+    return ResponseEntity.ok(Map.of(
+        "status", "UP",
+        "service", "warehouse-service"
+    ));
   }
 }

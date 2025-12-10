@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 import java.util.Random;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Product Service Controller
@@ -23,9 +22,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @Slf4j
 @RestController
+@RequestMapping("/products")
 public class ProductController {
 
-  private final AtomicInteger productIdCounter = new AtomicInteger(1);
   private final Random random = new Random();
 
   @Autowired
@@ -48,33 +47,54 @@ public class ProductController {
   }
 
   /**
+   * Health check endpoint for AWS ALB
+   * GET /products/health
+   */
+  @GetMapping("/health")
+  public ResponseEntity<Map<String, String>> health() {
+    return ResponseEntity.ok(Map.of(
+        "status", "UP",
+        "service", "product-service"
+    ));
+  }
+
+  /**
    * Create a new product and store it in the database.
    *
-   * We generate a unique product ID, serialize the product to JSON,
-   * and store it in our distributed key-value database.
+   * FIXED: Now uses the product_id from the request body instead of generating one.
+   * This prevents ID collisions when the service restarts.
    *
-   * @param product The product details from the request body
-   * @return 201 Created with the new product_id, or 500 if database fails
+   * @param product The product details from the request body (must include product_id)
+   * @return 201 Created with the product_id, or 400 if product_id is missing, or 500 if database fails
    */
-  @PostMapping("/product")
+  @PostMapping("")
   public ResponseEntity<Map<String, Integer>> createProduct(@RequestBody Product product) {
     simulateDelay();
 
-    // Generate unique ID for this product
-    Integer newProductId = productIdCounter.getAndIncrement();
-    product.setProductId(newProductId);
+    // FIXED: Use the product_id from the request body
+    Integer productId = product.getProductId();
+
+    // Validate that product_id was provided
+    if (productId == null) {
+      log.error("Product ID is required but was not provided");
+      return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+          .body(Map.of("error", -1)); // Indicate error
+    }
 
     try {
       // Convert product object to JSON string for storage
       String productJson = objectMapper.writeValueAsString(product);
 
       // Store in database with key format: "product_123"
-      database.put("product_" + newProductId, productJson);
+      // Using the product_id from the request, not a generated one
+      database.put("product_" + productId, productJson);
+
+      log.info("Successfully created product with ID: {}", productId);
 
       return ResponseEntity.status(HttpStatus.CREATED)
-          .body(Map.of("product_id", newProductId));
-    } catch (Exception e) { // Catch any exception and return 500
-      log.error("Failed to store product", e);
+          .body(Map.of("product_id", productId));
+    } catch (Exception e) {
+      log.error("Failed to store product with ID: {}", productId, e);
       return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
     }
   }
@@ -88,7 +108,7 @@ public class ProductController {
    * @param productId The ID of the product to retrieve
    * @return 200 OK with product data, 404 if not found, or 500 if database fails
    */
-  @GetMapping("/products/{productId}")
+  @GetMapping("/{productId}")
   public ResponseEntity<Product> getProduct(@PathVariable Integer productId) {
     simulateDelay();
 
@@ -98,6 +118,7 @@ public class ProductController {
 
       // If key doesn't exist, product not found
       if (productJson == null) {
+        log.debug("Product not found: {}", productId);
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
       }
 
@@ -105,7 +126,7 @@ public class ProductController {
       Product product = objectMapper.readValue(productJson, Product.class);
       return ResponseEntity.ok(product);
     } catch (Exception e) {
-      log.error("Failed to read product", e);
+      log.error("Failed to read product: {}", productId, e);
       return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
     }
   }

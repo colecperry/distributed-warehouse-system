@@ -34,7 +34,10 @@ public class DatabaseClient {
   private final ObjectMapper objectMapper = new ObjectMapper();
 
   /**
-   * Save a shopping cart to the database (a key-value pair) using a W=1 write strategy
+   * Store a key-value pair in the database.
+   *
+   * This uses the W=1 write strategy - it writes to the Leader node and returns
+   * immediately. The Leader handles replication to the 4 Followers in the background.
    *
    * The database expects JSON like: {"key": "cart_1", "value": "{...cart json...}"}
    *
@@ -58,7 +61,11 @@ public class DatabaseClient {
   }
 
   /**
-   * Retrieve a shopping cart from the database by it's key using a R=5 read strategy
+   * Retrieve a value from the database by its key.
+   *
+   * This uses the R=5 read strategy - the database queries all 5 nodes (Leader + 4 Followers)
+   * and returns the value with the highest version number. This ensures we always get
+   * the most recent data, even if some Followers haven't been updated yet.
    *
    * The database returns JSON like: {"key": "cart_1", "value": "{...cart json...}", "version": 3}
    * We just extract and return the "value" field.

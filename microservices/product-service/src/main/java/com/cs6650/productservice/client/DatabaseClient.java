@@ -47,7 +47,7 @@ public class DatabaseClient {
    */
   public void put(String key, String value) {
     try {
-      String url = databaseUrl + "/api/set"; // Points to the Leader at port 8080
+      String url = databaseUrl + "/api/set";
       Map<String, String> request = Map.of("key", key, "value", value);
 
       restTemplate.postForEntity(url, request, String.class); // Send POST request to database Leader
