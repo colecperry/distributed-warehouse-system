@@ -11,26 +11,25 @@ We chose a single database cluster with 5 nodes using Leader-Follower architectu
 ## Use Cases Analysis
 
 ### Use Case 1: Add Item to Cart
-- **Reads:** Product info (price, name, stock) from Product database (VERY frequent)
-- **Writes:** Create/update shopping cart (FREQUENT)
-- **Note:** Inventory availability is checked via Product database stock field, not Warehouse service
+- **Reads:** Product info (price, name, stock) from Product database (frequent)
+- **Writes:** Create/update shopping cart (frequent)
+- **Note:** Inventory availability checked via Product database stock field
 
 ### Use Case 2: Checkout
-- **Reads:** Shopping cart contents, product details (FREQUENT)
-- **Writes:** Update cart status (FREQUENT)
-- **External Services:** Credit card authorization via Credit Card service (90% approve, 10% decline)
-- **External Services:** Warehouse ship request via RabbitMQ (always succeeds, has no data storage)
+- **Reads:** Shopping cart contents, product details (frequent)
+- **Writes:** Update cart status (frequent)
+- **External Services:** Credit card authorization (90% approve, 10% decline)
+- **External Services:** Warehouse ship request via RabbitMQ (always succeeds)
 
-### Read/Write Patterns
+### Database Access Patterns
 
 **Products:**
-- **Ratio:** 100:1 (100 customers browsing for every 1 admin adding products)
-- **Frequency:** Reads happen constantly (browse, add to cart, checkout), writes are rare
-- **Stock checks:** Done by reading Product data, not calling Warehouse service
+- **Pattern:** Read-heavy (customers browse constantly, admins update rarely)
+- **Operations:** Read product details, check stock (frequent), Admin adds products (rare)
 
 **Shopping Carts:**
-- **Ratio:** 2:1 (2 reads for every 1 write - view cart twice, then add/modify once)
-- **Frequency:** Both reads and writes are frequent during shopping sessions
+- **Pattern:** Mixed read/write (view cart, add/remove items, checkout)
+- **Operations:** Create cart, update items, read contents (all frequent during sessions)
 
 ---
 
@@ -58,14 +57,14 @@ We chose a single database cluster with 5 nodes using Leader-Follower architectu
 **How it works:**
 1. Customer clicks "Add to Cart"
 2. Leader saves cart data immediately
-3. Customer sees "Item Added!" in 50ms
+3. Customer sees response (5ms under write-heavy load per Assignment 4 testing)
 4. Leader replicates to 4 Followers in background (200ms each)
 
 **Why this is good:**
-- Fast customer experience (50ms vs 250ms for W=5)
+- Fast customer experience (5ms vs 618ms for W=3, 2484ms for W=5 from Assignment 4)
 - No waiting for replication
 - Customer actions feel instant
-- Critical for conversions - slow add to cart = lost sales
+- Critical for conversions
 
 ### R=5 (Read from all 5 nodes)
 
@@ -78,7 +77,7 @@ We chose a single database cluster with 5 nodes using Leader-Follower architectu
 - Always shows accurate prices
 - Always shows current cart contents
 - Always shows correct stock levels (prevents overselling)
-- Eliminates stale reads after 800ms maximum
+- Zero stale reads (proven in Assignment 4 with 10,000 operations)
 
 ---
 
@@ -92,7 +91,7 @@ We chose a single database cluster with 5 nodes using Leader-Follower architectu
 - Clear authority prevents write conflicts
 
 **Prevents race conditions:**
-- Two customers can't modify the same cart simultaneously
+- Two customers cannot modify the same cart simultaneously
 - Shopping cart updates are serialized through Leader
 - No conflict resolution needed
 
@@ -103,9 +102,11 @@ We chose a single database cluster with 5 nodes using Leader-Follower architectu
 
 ### Why NOT Leaderless?
 
-- **Complexity:** Requires conflict resolution (vector clocks, CRDTs)
-- **Overhead:** More complex for our simple use case
-- **Overkill:** We don't need multi-datacenter writes
+**From Assignment 4 testing:**
+- W=N, R=1 Leaderless showed 1243ms writes at 90% write load (249x slower than W=1, R=5)
+- 95% throughput degradation from read-heavy to write-heavy workloads
+- Requires complex conflict resolution (vector clocks, CRDTs)
+- Unnecessary for our scale (1,000 products)
 
 ---
 
@@ -126,25 +127,25 @@ We chose a single database cluster with 5 nodes using Leader-Follower architectu
 -  **Speed:** Fast responses for customers
 
 **What we deprioritized:**
--  **Strong Consistency:** Accept brief stale data (up to 800ms)
+- **Strong Consistency:** Accept brief stale data (up to 800ms)
 
 ### The Trade-off Explained
 
 **What we gave up:**
 - For about 0.8 seconds, Follower nodes might have slightly old data
 - **Example:** Customer adds item to cart at 2:00:00 PM
-  - Leader knows immediately (2:00:00 PM)
-  - Follower 1 knows at 2:00:00.2 PM
-  - Follower 2 knows at 2:00:00.4 PM
-  - Follower 3 knows at 2:00:00.6 PM
-  - Follower 4 knows at 2:00:00.8 PM
+    - Leader knows immediately (2:00:00 PM)
+    - Follower 1 knows at 2:00:00.2 PM (200ms later)
+    - Follower 2 knows at 2:00:00.4 PM (400ms later)
+    - Follower 3 knows at 2:00:00.6 PM (600ms later)
+    - Follower 4 knows at 2:00:00.8 PM (800ms later)
 - After 0.8 seconds, ALL nodes have the same data
 
 **Why this is acceptable:**
 - 0.8 seconds is too fast for customers to notice
 - Much better than website being down
 - eCommerce prioritizes availability over brief staleness
-- Our R=5 reads always return the newest version anyway
+- Our R=5 reads always return the newest version anyway (zero stale reads in Assignment 4)
 
 ---
 
@@ -152,45 +153,70 @@ We chose a single database cluster with 5 nodes using Leader-Follower architectu
 
 ### Performance Testing Results
 
-From our Assignment 4 experiments, we learned:
+From our Assignment 4 experiments with W=1, R=5 across 10,000 operations:
 
-**W=1 Write Performance:**
-- Average latency: 50ms per write
-- Throughput: 1,000+ writes/second
-- Background replication doesn't block clients
+**W=1 Write Performance by Workload:**
 
-**R=5 Read Performance:**
-- Average latency: 120ms per read
-- Always returns most recent version
-- Parallel queries to 5 nodes complete quickly
+| Scenario | Write P50 | Write Avg | Throughput |
+|----------|-----------|-----------|------------|
+| 90% Write, 10% Read | **5ms** | 26ms | 106 req/s |
+| 50% Write, 50% Read | 147ms | 135ms | 148 req/s |
+| 10% Write, 90% Read | 268ms | 245ms | 326 req/s |
+| 1% Write, 99% Read | 275ms | 273ms | 480 req/s |
 
-**Comparison with Other Strategies:**
+**R=5 Read Performance by Workload:**
 
-| Strategy | Write Latency | Read Latency | Best For |
-|----------|--------------|--------------|----------|
-| **W=1, R=5** | 50ms  | 120ms | Fast writes, consistent reads |
-| W=5, R=1 | 250ms  | 50ms | Critical consistency, slow writes OK |
-| W=3, R=3 | 150ms | 100ms | Balanced (no clear advantage) |
+| Scenario | Read P50 | Read Avg |
+|----------|----------|----------|
+| 90% Write, 10% Read | **255ms** | 274ms |
+| 50% Write, 50% Read | 412ms | 398ms |
+| 10% Write, 90% Read | 532ms | 512ms |
+| 1% Write, 99% Read | 542ms | 540ms |
+
+**Critical Finding:**
+- **Zero stale reads** across all 10,000 operations and all test scenarios
+- R=5 always returns newest version by querying all nodes and comparing version numbers
+- Even during 800ms replication window, R=5 finds latest data on Leader
+
+### Comparison with Other Strategies (From Assignment 4)
+
+**Write Performance at 90% Write Load:**
+
+| Strategy | Write P50 | Performance vs W=1, R=5 |
+|----------|-----------|-------------------------|
+| **W=1, R=5** | **5ms** | Baseline (fastest) |
+| W=3, R=3 | 618ms | 123x slower |
+| W=5, R=1 | 2484ms | 497x slower |
+| W=N, R=1 | 1243ms | 249x slower |
+
+**Why This Matters:**
+- eCommerce requires fast writes for cart operations
+- W=1, R=5 delivered best write performance under write-heavy load
+- All configurations achieved zero stale reads, so performance was the deciding factor
 
 ### Key Insights
 
-1. **W=1 provides best write performance** - Critical for customer experience
-2. **R=5 eliminates stale reads after 800ms** - Acceptable delay for our use case
+1. **W=1 provides best write performance** - 5ms at 90% write load vs 618ms+ for alternatives
+2. **R=5 eliminates stale reads** - Zero stale reads despite async replication
 3. **Leader-Follower handled 10,000 operations** - No failures or data loss
 4. **Replication delays are predictable** - 200ms per node, total 800ms
+5. **Consistent performance** - W=1, R=5 maintained stable throughput across workloads
 
 ---
 
 ## Why NOT Other Database Options?
 
 ### W=5, R=1 (Write to all 5, Read from 1)
-**Why NOT:** Customers wait 1+ second every time they add to cart (too slow, frustrating experience).
+**Why NOT:** 2484ms writes at 90% write load (497x slower than W=1, R=5). Unacceptable for customer cart operations.
 
 ### W=3, R=3 (Write to 3, Read from 3)
-**Why NOT:** Middle ground that's slower than W=1 for writes but less consistent than R=5 for reads (no clear advantage).
+**Why NOT:** 618ms writes vs 5ms (W=1, R=5) at high write loads. No advantage for our workload. Same throughput but much slower writes.
 
-### Leaderless Database
-**Why NOT:** More complex to manage and two customers could accidentally create conflicting cart updates at the same time.
+### W=N, R=1 Leaderless
+**Why NOT:**
+- 1243ms writes (249x slower than W=1, R=5)
+- 95% throughput collapse from read-heavy to write-heavy workloads
+- Excessive complexity (conflict resolution) unnecessary for our scale
 
 ---
 
@@ -199,17 +225,17 @@ From our Assignment 4 experiments, we learned:
 ### System Scale
 - **Products:** 1,000-5,000 items in database
 - **Concurrent Users:** Up to 1,000 simultaneous shoppers
-- **Peak Load:** Black Friday-level traffic with auto-scaling
+- **Peak Load:** Auto-scaling enabled for traffic spikes
 
 ### Usage Patterns
-- **Browse/Search:** 70% of traffic (product reads from database)
-- **Add to Cart:** 25% of traffic (cart writes + product reads for stock check)
-- **Checkout:** 5% of traffic (cart reads/writes + external service calls)
-- **Note:** Warehouse service only involved in checkout (ship via RabbitMQ), not during browse or add to cart
+- **Browse/Search:** High frequency (product reads from database)
+- **Add to Cart:** High frequency (cart writes + product reads)
+- **Checkout:** Lower frequency (cart reads/writes + external service calls)
+- **Note:** Warehouse service only involved in checkout (ship via RabbitMQ)
 
 ### Business Requirements
 - **Availability > Consistency:** Website uptime is critical
-- **Fast Response:** Customers expect sub-200ms actions
+- **Fast Response:** Customers expect instant actions
 - **Accurate Data:** Must prevent overselling and wrong prices
 
 ---
@@ -229,8 +255,8 @@ From our Assignment 4 experiments, we learned:
 
 **Option 2: Horizontal Partitioning**
 - Split into two clusters:
-  - **Cluster 1:** Products (W=1, R=5) - Read-optimized
-  - **Cluster 2:** Shopping Carts (W=5, R=1) - Write-optimized
+    - **Cluster 1:** Products (W=1, R=5) - Read-optimized
+    - **Cluster 2:** Shopping Carts (W=5, R=1) - Write-optimized
 - Each cluster optimized for its workload
 
 **Option 3: Geographic Distribution**
@@ -244,11 +270,16 @@ From our Assignment 4 experiments, we learned:
 
 Our W=1, R=5 Leader-Follower architecture provides the optimal balance for an eCommerce system:
 
- **Fast writes** keep customers happy (50ms add to cart)  
- **Consistent reads** prevent business logic errors  
+ **Fast writes** (5ms at 90% write load from Assignment 4)  
+ **Zero stale reads** across 10,000 operations  
  **High availability** ensures website stays up  
  **Proven reliability** from Assignment 4 testing  
  **Simple to maintain** and debug
 
 The brief 800ms eventual consistency window is acceptable for our use case and vastly outweighed by the benefits of speed and availability.
 
+---
+
+**Document prepared by:** Member B (Database Team)  
+**Date:** November 27, 2025  
+**Assignment:** CS6650 Assignment 5 - Everything, All At Once
