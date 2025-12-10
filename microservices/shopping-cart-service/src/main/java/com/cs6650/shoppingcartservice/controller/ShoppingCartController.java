@@ -46,11 +46,9 @@ public class ShoppingCartController {
   @Autowired
   private RabbitMQService rabbitMQService;
 
-  // Database client for storing/retrieving carts
   @Autowired
   private DatabaseClient database;
 
-  // JSON serialization for converting carts to/from JSON strings
   @Autowired
   private ObjectMapper objectMapper;
 
@@ -75,17 +73,17 @@ public class ShoppingCartController {
    */
   @PostMapping("/shopping-cart")
   public ResponseEntity<Map<String, Object>> createCart(@RequestBody Map<String, Integer> request) {
-    simulateDelay();
+    simulateDelay(); // Simulate a random delay to help trigger autoscaling during load testing
 
     Integer customerId = request.get("customer_id");
-    if (customerId == null || customerId <= 0) {
-      return new ResponseEntity<>(Map.of("error", "INVALID_INPUT"), HttpStatus.BAD_REQUEST);
+    if (customerId == null || customerId <= 0) { // Check if customer ID is valid
+      return errorResponse(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "Invalid customer ID");
     }
 
     int cartId = idCounter.getAndIncrement();
-    ShoppingCart cart = new ShoppingCart();
+    ShoppingCart cart = new ShoppingCart(); // Create a new shopping cart for the customer
     cart.setShoppingCartId(cartId);
-    cart.setCustomerId(customerId);
+    cart.setCustomerId(customerId); 
 
     try {
       // Store cart in database as JSON
@@ -93,7 +91,8 @@ public class ShoppingCartController {
       database.put("cart_" + cartId, cartJson);
 
       logger.info("Created cart {} for customer {}", cartId, customerId);
-      return new ResponseEntity<>(Map.of("shopping_cart_id", cartId), HttpStatus.CREATED);
+      return ResponseEntity.status(HttpStatus.CREATED)
+          .body(Map.of("shopping_cart_id", cartId));
     } catch (Exception e) {
       logger.error("Failed to create cart in database", e);
       return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -101,7 +100,7 @@ public class ShoppingCartController {
   }
 
   /**
-   * Add an item to a shopping cart.
+   * Use Case 1 - Add an item to a shopping cart.
    *
    * Flow:
    * 1. Validate input
@@ -118,130 +117,45 @@ public class ShoppingCartController {
     
     simulateDelay();
 
-    // Validate product ID
-    if (item.getProductId() == null || item.getProductId() <= 0) {
-      logger.warn("Invalid product ID: {}", item.getProductId());
-      return ResponseEntity.badRequest()
-          .body(Map.of("error", "INVALID_INPUT", "message", "Invalid product ID"));
+    // Validate input
+    ResponseEntity<Map<String, Object>> validationError = validateCartItem(item);
+    if (validationError != null) {
+      return validationError;
     }
 
-    // Validate quantity (1 to 10,000 per assignment)
-    if (item.getQuantity() == null || item.getQuantity() < 1 || item.getQuantity() > 10000) {
-      logger.warn("Invalid quantity: {}", item.getQuantity());
-      return ResponseEntity.badRequest()
-          .body(Map.of("error", "INVALID_INPUT", "message", "Quantity must be between 1 and 10000"));
+    // Check if product exists in Product Service - 1 READ operation
+    if (!isProductValid(item.getProductId())) {
+      return errorResponse(HttpStatus.NOT_FOUND, "NOT_FOUND", "Product not found");
+    }
+
+    // Check if warehouse has inventory -> warehouse has no database (always returns True)
+    if (!isInventoryAvailable(item.getProductId(), item.getQuantity())) {
+      return errorResponse(HttpStatus.CONFLICT, "INSUFFICIENT_INVENTORY", "Not enough inventory available");
     }
 
     try {
-      // Step 1: Call Product Service to validate product exists and get details
-      logger.info("Checking product {} exists", item.getProductId());
-      String productUrl = PRODUCT_SERVICE_URL + "/products/" + item.getProductId();
-      
-      try {
-        ResponseEntity<Map> productResponse = restTemplate.getForEntity(productUrl, Map.class);
-        
-        if (productResponse.getStatusCode() != HttpStatus.OK) {
-          logger.warn("Product {} not found", item.getProductId());
-          return ResponseEntity.status(HttpStatus.NOT_FOUND)
-              .body(Map.of("error", "NOT_FOUND", "message", "Product not found"));
-        }
-        
-        logger.info("Product {} validated", item.getProductId());
-        
-      } catch (HttpClientErrorException.NotFound e) {
-        logger.warn("Product {} does not exist", item.getProductId());
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-            .body(Map.of("error", "NOT_FOUND", "message", "Product not found"));
-      } catch (Exception e) {
-        logger.error("Failed to check product service: {}", e.getMessage());
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-            .body(Map.of("error", "SERVICE_UNAVAILABLE", "message", "Product service unavailable"));
-      }
+      // Load cart from database (or create new one if doesn't exist)
+      ShoppingCart cart = loadOrCreateCart(shoppingCartId); // Make a GET request to the database to load the cart - 1 READ
 
-      // Step 2: Call Warehouse Service to check inventory
-      logger.info("Checking inventory for product {} quantity {}", item.getProductId(), item.getQuantity());
-      String warehouseUrl = WAREHOUSE_SERVICE_URL + "/check-inventory";
-      
-      try {
-        Map<String, Object> inventoryRequest = Map.of(
-            "product_id", item.getProductId(),
-            "quantity", item.getQuantity()
-        );
-        
-        ResponseEntity<Map> inventoryResponse = restTemplate.postForEntity(
-            warehouseUrl, 
-            inventoryRequest, 
-            Map.class
-        );
-        
-        if (inventoryResponse.getStatusCode() != HttpStatus.OK) {
-          logger.warn("Warehouse service returned error for product {}", item.getProductId());
-          return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-              .body(Map.of("error", "SERVICE_UNAVAILABLE", 
-                          "message", "Warehouse service error"));
-        }
-        
-        // Check if inventory is available (check-inventory endpoint returns "available": true/false as boolean)
-        Map<String, Object> responseBody = inventoryResponse.getBody();
-        if (responseBody == null) {
-          logger.error("Warehouse service returned null response");
-          return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-              .body(Map.of("error", "SERVICE_UNAVAILABLE", 
-                          "message", "Warehouse service error"));
-        }
-        
-        Boolean available = (Boolean) responseBody.get("available");
-        if (available == null || !available) {
-          logger.warn("Insufficient inventory for product {}", item.getProductId());
-          return ResponseEntity.status(HttpStatus.CONFLICT)
-              .body(Map.of("error", "INSUFFICIENT_INVENTORY", 
-                          "message", "Not enough inventory available"));
-        }
-        
-        logger.info("Inventory check passed for product {}", item.getProductId());
-        
-      } catch (Exception e) {
-        logger.error("Failed to check warehouse service: {}", e.getMessage());
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-            .body(Map.of("error", "SERVICE_UNAVAILABLE", "message", "Warehouse service unavailable"));
-      }
-
-      // Step 3: Read cart from database (or create if doesn't exist)
-      String cartJson = database.get("cart_" + shoppingCartId);
-      ShoppingCart cart;
-
-      if (cartJson == null) {
-        // Cart doesn't exist - create it automatically
-        logger.info("Cart {} doesn't exist, auto-creating cart", shoppingCartId);
-        cart = new ShoppingCart();
-        cart.setShoppingCartId(shoppingCartId);
-        cart.setCustomerId(0);  // Unknown customer
-      } else {
-        // Cart exists - deserialize it
-        cart = objectMapper.readValue(cartJson, ShoppingCart.class);
-      }
-
-      // Step 4: Add the new item to the cart
+      // Add the new item to the cart
       cart.getItems().add(item);
 
-      // Step 5: Save updated cart back to database
-      String updatedCartJson = objectMapper.writeValueAsString(cart);
-      database.put("cart_" + shoppingCartId, updatedCartJson);
+      // Save updated cart back to database
+      saveCart(shoppingCartId, cart); // Make a PUT request to the database to save the cart - 1 WRITE
 
-      logger.info("Successfully added {} x product {} to cart {}",
+      logger.info("Successfully added {} x product {} to cart {}", 
           item.getQuantity(), item.getProductId(), shoppingCartId);
       
       return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
 
     } catch (Exception e) {
       logger.error("Failed to add item to cart", e);
-      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-          .body(Map.of("error", "INTERNAL_ERROR", "message", "Could not add item to cart"));
+      return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Could not add item to cart");
     }
   }
 
   /**
-   * Checkout a shopping cart with ACID transaction semantics.
+   * Use Case 2 -Checkout a shopping cart with ACID transaction semantics.
    * Reads cart from database and processes payment with transaction boundaries.
    */
   @PostMapping("/shopping-carts/{shoppingCartId}/checkout")
@@ -255,9 +169,7 @@ public class ShoppingCartController {
     String creditCardNumber = request.get("credit_card_number");
     if (creditCardNumber == null || creditCardNumber.isEmpty()) {
       logger.warn("Checkout attempted without credit card");
-      return new ResponseEntity<>(
-          Map.of("error", "INVALID_INPUT", "message", "Credit card number is required"),
-          HttpStatus.BAD_REQUEST);
+      return errorResponse(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "Credit card number is required");
     }
 
     // BEGIN TRANSACTION - Start of atomic checkout operation
@@ -265,64 +177,45 @@ public class ShoppingCartController {
     logger.info("Transaction started for cart {}", shoppingCartId);
 
     try {
-      // Step 1: Read cart from database
+      // Read cart from database - 1 READ operation
       String cartJson = database.get("cart_" + shoppingCartId);
-
-      if (cartJson == null) {
+      // If the cart doesn't exist, return an error
+      if (cartJson == null) { 
         logger.warn("Checkout attempted on non-existent cart {}", shoppingCartId);
-        database.abortTransaction();
-        return new ResponseEntity<>(
-            Map.of("error", "NOT_FOUND", "message", "Cart not found"),
-            HttpStatus.NOT_FOUND);
+        database.abortTransaction(); // Transaction Boundary: Abort
+        return errorResponse(HttpStatus.NOT_FOUND, "NOT_FOUND", "Cart not found");
       }
 
-      ShoppingCart cart = objectMapper.readValue(cartJson, ShoppingCart.class);
+      ShoppingCart cart = objectMapper.readValue(cartJson, ShoppingCart.class); // Deserialize (JSON to Java)
 
-      // Step 2: Authorize credit card
-      logger.info("Authorizing payment for cart {}", shoppingCartId);
-      ResponseEntity<Map> response = restTemplate.postForEntity(
-          CCA_URL,
-          Map.of("credit_card_number", creditCardNumber),
-          Map.class
-      );
-
-      // Step 3: Check authorization result
-      if (response.getStatusCode() == HttpStatus.OK) {
-        // Payment authorized - proceed with order
+      // Authorize credit card payment
+      boolean paymentAuthorized = authorizeCreditCard(creditCardNumber);
+      
+      if (paymentAuthorized) {
+        // Payment successful - create order and ship
         int orderId = orderIdCounter.getAndIncrement();
         logger.info("Payment authorized for cart {}, created order {}", shoppingCartId, orderId);
 
-        // Step 4: Send order to warehouse (fire-and-forget)
-        try {
-          rabbitMQService.sendOrderToWarehouse(cart);
-          logger.info("Sent order {} to warehouse queue", orderId);
-        } catch (Exception e) {
-          logger.error("Failed to send order {} to warehouse: {}", orderId, e.getMessage());
-        }
+        // Send order to warehouse via RabbitMQ (fire-and-forget)
+        sendToWarehouse(cart, orderId);
 
+        // COMMIT TRANSACTION - Successful checkout
         database.endTransaction();
         logger.info("Transaction committed for cart {}", shoppingCartId);
 
         return ResponseEntity.ok(Map.of("order_id", orderId));
-
-      } else if (response.getStatusCode() == HttpStatus.PAYMENT_REQUIRED) {
+        
+      } else {
+        // Payment declined
         logger.warn("Payment declined for cart {}", shoppingCartId);
         database.abortTransaction();
-        return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
-            .body(Map.of("error", "PAYMENT_DECLINED", "message", "Credit card declined"));
-
-      } else {
-        logger.error("Unexpected response from CCA: {}", response.getStatusCode());
-        database.abortTransaction();
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-            .body(Map.of("error", "INTERNAL_ERROR", "message", "Unexpected error during checkout"));
+        return errorResponse(HttpStatus.PAYMENT_REQUIRED, "PAYMENT_DECLINED", "Credit card declined");
       }
 
     } catch (Exception e) {
       logger.error("Error during checkout: {}", e.getMessage());
       database.abortTransaction();
-      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-          .body(Map.of("error", "SERVICE_ERROR", "message", "Could not complete checkout"));
+      return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "SERVICE_ERROR", "Could not complete checkout");
     }
   }
 
@@ -358,5 +251,175 @@ public class ShoppingCartController {
   @GetMapping("/hello")
   public ResponseEntity<String> hello() {
     return ResponseEntity.ok("Hello from Shopping Cart Service!");
+  }
+
+  // ==========================================
+  // HELPER METHODS - Keep code clean and readable
+  // ==========================================
+
+  /**
+   * Validate cart item input (product ID and quantity).
+   * Returns error response if invalid, or null if valid.
+   */
+  private ResponseEntity<Map<String, Object>> validateCartItem(CartItem item) {
+    if (item.getProductId() == null || item.getProductId() <= 0) {
+      logger.warn("Invalid product ID: {}", item.getProductId());
+      return errorResponse(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "Invalid product ID");
+    }
+
+    if (item.getQuantity() == null || item.getQuantity() < 1 || item.getQuantity() > 10000) {
+      logger.warn("Invalid quantity: {}", item.getQuantity());
+      return errorResponse(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "Quantity must be between 1 and 10000");
+    }
+
+    return null; // Valid
+  }
+
+  /**
+   * Check if a product exists by calling the Product Service.
+   * Returns true if product exists, false otherwise.
+   */
+  private boolean isProductValid(Integer productId) {
+    try {
+      logger.info("Checking if product {} exists", productId);
+      String productUrl = PRODUCT_SERVICE_URL + "/products/" + productId;
+      
+      // Make a GET request to the Product Service to check if the product exists
+      ResponseEntity<Map> response = restTemplate.getForEntity(productUrl, Map.class);
+      boolean exists = response.getStatusCode() == HttpStatus.OK;
+      
+      if (exists) {
+        logger.info("Product {} validated", productId);
+      } else {
+        logger.warn("Product {} not found", productId);
+      }
+      
+      return exists;
+      
+    } catch (HttpClientErrorException.NotFound e) {
+      logger.warn("Product {} does not exist", productId);
+      return false;
+    } catch (Exception e) {
+      logger.error("Failed to check product service: {}", e.getMessage());
+      return false;
+    }
+  }
+
+  /**
+   * Check if warehouse has sufficient inventory by calling the Warehouse Service.
+   * Returns true if inventory available, false otherwise.
+   */
+  private boolean isInventoryAvailable(Integer productId, Integer quantity) {
+    try {
+      logger.info("Checking inventory for product {} quantity {}", productId, quantity);
+      String warehouseUrl = WAREHOUSE_SERVICE_URL + "/check-inventory";
+      
+      Map<String, Object> request = Map.of("product_id", productId, "quantity", quantity);
+      ResponseEntity<Map> response = restTemplate.postForEntity(warehouseUrl, request, Map.class);
+      
+      if (response.getStatusCode() != HttpStatus.OK) {
+        logger.warn("Warehouse service returned error for product {}", productId);
+        return false;
+      }
+
+      Map<String, Object> body = response.getBody();
+      if (body == null) {
+        logger.error("Warehouse service returned null response");
+        return false;
+      }
+
+      Boolean available = (Boolean) body.get("available");
+      boolean hasInventory = available != null && available;
+      
+      if (hasInventory) {
+        logger.info("Inventory check passed for product {}", productId);
+      } else {
+        logger.warn("Insufficient inventory for product {}", productId);
+      }
+      
+      return hasInventory;
+      
+    } catch (Exception e) {
+      logger.error("Failed to check warehouse service: {}", e.getMessage());
+      return false;
+    }
+  }
+
+  /**
+   * Load cart from database, or create a new one if it doesn't exist.
+   * This implements the auto-create cart feature required by the assignment.
+   */
+  private ShoppingCart loadOrCreateCart(Integer shoppingCartId) throws Exception {
+    String cartJson = database.get("cart_" + shoppingCartId); // Make a GET request to the database to load the cart - 1 READ
+    
+    if (cartJson == null) {
+      // Cart doesn't exist - create it automatically
+      logger.info("Cart {} doesn't exist, auto-creating cart", shoppingCartId);
+      ShoppingCart cart = new ShoppingCart();
+      cart.setShoppingCartId(shoppingCartId);
+      cart.setCustomerId(0);  // Unknown customer
+      return cart;
+    } else {
+      // Cart exists - deserialize it
+      return objectMapper.readValue(cartJson, ShoppingCart.class);
+    }
+  }
+
+  /**
+   * Save cart to database as JSON string.
+   */
+  private void saveCart(Integer shoppingCartId, ShoppingCart cart) throws Exception {
+    String cartJson = objectMapper.writeValueAsString(cart);
+    database.put("cart_" + shoppingCartId, cartJson);
+  }
+
+  /**
+   * Authorize credit card payment by calling the Credit Card Service.
+   * Returns true if authorized, false if declined.
+   */
+  private boolean authorizeCreditCard(String creditCardNumber) {
+    try {
+      logger.info("Authorizing payment");
+      ResponseEntity<Map> response = restTemplate.postForEntity(
+          CCA_URL,
+          Map.of("credit_card_number", creditCardNumber),
+          Map.class
+      );
+
+      if (response.getStatusCode() == HttpStatus.OK) {
+        return true; // Authorized
+      } else if (response.getStatusCode() == HttpStatus.PAYMENT_REQUIRED) {
+        return false; // Declined
+      } else {
+        logger.error("Unexpected response from Credit Card Service: {}", response.getStatusCode());
+        return false;
+      }
+      
+    } catch (Exception e) {
+      logger.error("Credit card authorization failed: {}", e.getMessage());
+      return false;
+    }
+  }
+
+  /**
+   * Send order to warehouse via RabbitMQ (fire-and-forget pattern).
+   * Errors are logged but don't fail the checkout.
+   */
+  private void sendToWarehouse(ShoppingCart cart, int orderId) {
+    try {
+      rabbitMQService.sendOrderToWarehouse(cart);
+      logger.info("Sent order {} to warehouse queue", orderId);
+    } catch (Exception e) {
+      logger.error("Failed to send order {} to warehouse: {}", orderId, e.getMessage());
+      // Don't fail checkout - warehouse issue can be handled separately
+    }
+  }
+
+  /**
+   * Create a standardized error response.
+   * Makes error handling consistent across all endpoints.
+   */
+  private ResponseEntity<Map<String, Object>> errorResponse(HttpStatus status, String error, String message) {
+    return ResponseEntity.status(status).body(Map.of("error", error, "message", message));
   }
 }
