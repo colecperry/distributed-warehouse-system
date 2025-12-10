@@ -29,9 +29,9 @@ public class CreditCardAuthorizerController {
 
   @PostMapping("/authorize")
   public ResponseEntity<Map<String, String>> authorizePayment(@RequestBody Map<String, String> body) {
-    
+
     simulateDelay();
-    
+
     String cardNumber = body.get("credit_card_number");
 
     // Validate input
@@ -59,4 +59,16 @@ public class CreditCardAuthorizerController {
   public ResponseEntity<String> hello() {
     return ResponseEntity.ok("Hello from Credit Card Authorizer!");
   }
+
+  /**
+   * Health check endpoint for AWS ALB
+   */
+  @GetMapping("/health")
+  public ResponseEntity<Map<String, String>> health() {
+    return ResponseEntity.ok(Map.of(
+        "status", "UP",
+        "service", "credit-card-authorizer"
+    ));
+  }
+
 }
