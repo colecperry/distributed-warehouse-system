@@ -151,8 +151,6 @@ Service URLs are configured via environment variables or `application.yml`/`appl
 
 ## Testing
 
-See `TESTING_GUIDE.md` for detailed testing instructions.
-
 For load testing, use the Locust scripts in `locust-tests/` directory.
 
 ## Notes
