@@ -145,6 +145,10 @@ resource "aws_ecs_task_definition" "product" {
         {
           name  = "DATABASE_URL"
           value = "http://${aws_lb.main.dns_name}"  # Use ALB to reach database leader
+        },
+        {
+          name  = "DATABASE_READ_STRATEGY"
+          value = "R1"  # Fast reads for read-heavy Product Service
         }
       ]
 

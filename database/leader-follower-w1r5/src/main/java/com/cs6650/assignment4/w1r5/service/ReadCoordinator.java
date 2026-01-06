@@ -2,6 +2,7 @@ package com.cs6650.assignment4.w1r5.service;
 
 import com.cs6650.assignment4.w1r5.config.NodeConfig;
 import com.cs6650.assignment4.w1r5.model.KeyValue;
+import com.cs6650.assignment4.w1r5.model.ReadStrategy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -12,11 +13,16 @@ import java.util.List;
 import java.util.concurrent.*;
 
 /**
- * ReadCoordinator implements R=5 read logic.
+ * ReadCoordinator implements configurable read strategies (R=1 and R=5).
  *
- * R=5 means: Read from ALL 5 nodes and return the value with highest version.
- * This ensures you always get the most recent data, even if some Followers
- * haven't been updated yet (inconsistency window).
+ * R=1: Read from a single node (fast, eventual consistency)
+ *      - Best for read-heavy workloads (e.g., Product Service)
+ *      - Reads from Leader first (fastest), falls back to a Follower if needed
+ *
+ * R=5: Read from ALL 5 nodes and return the value with highest version (strong consistency)
+ *      - Best for write-heavy workloads where consistency is critical (e.g., Shopping Cart Service)
+ *      - Ensures you always get the most recent data, even if some Followers
+ *        haven't been updated yet (inconsistency window).
  */
 @Service
 public class ReadCoordinator {
@@ -39,7 +45,52 @@ public class ReadCoordinator {
     }
 
     // ==========================================
-    // R=5 READ LOGIC
+    // R=1 READ LOGIC (Fast, Single Node)
+    // ==========================================
+
+    /**
+     * Read from a single node (R=1 strategy).
+     * 
+     * This is the fast read strategy:
+     * 1. First tries to read from Leader (local, no network call - fastest)
+     * 2. If Leader doesn't have it, tries first available Follower
+     * 
+     * Trade-off: Fast but may return slightly stale data if replication hasn't completed.
+     * Best for: Read-heavy workloads where speed matters more than strict consistency.
+     *
+     * @param key The key to read
+     * @return The KeyValue from the first node that has it, or null if not found
+     */
+    public KeyValue readFromSingleNode(String key) {
+        System.out.println("R=1 Read starting for key: " + key);
+
+        // Step 1: Try Leader first (fastest - local read, no network)
+        KeyValue leaderValue = leaderService.getLocal(key);
+        if (leaderValue != null) {
+            System.out.println("R=1 Read complete from Leader: version=" + leaderValue.getVersion());
+            return leaderValue;
+        }
+
+        System.out.println("Leader: key not found, trying first Follower...");
+
+        // Step 2: Try first available Follower (fallback)
+        List<String> followerUrls = nodeConfig.getFollowerUrls();
+        if (!followerUrls.isEmpty()) {
+            String firstFollowerUrl = followerUrls.get(0);
+            KeyValue followerValue = readFromFollower(firstFollowerUrl, key);
+            
+            if (followerValue != null) {
+                System.out.println("R=1 Read complete from Follower: version=" + followerValue.getVersion());
+                return followerValue;
+            }
+        }
+
+        System.out.println("R=1 Read: key not found on any node");
+        return null;
+    }
+
+    // ==========================================
+    // R=5 READ LOGIC (Strong Consistency)
     // ==========================================
 
     /**
@@ -136,6 +187,28 @@ public class ReadCoordinator {
             // Follower might not be running (expected in tests)
             // In production, this could be a network error or timeout
             return null;
+        }
+    }
+
+    // ==========================================
+    // UNIFIED READ METHOD (with strategy parameter)
+    // ==========================================
+
+    /**
+     * Read using the specified strategy.
+     * 
+     * This is a convenience method that routes to the appropriate read strategy
+     * based on the ReadStrategy enum parameter.
+     *
+     * @param key The key to read
+     * @param strategy The read strategy to use (R1 or R5)
+     * @return The KeyValue, or null if not found
+     */
+    public KeyValue read(String key, ReadStrategy strategy) {
+        if (strategy == ReadStrategy.R1) {
+            return readFromSingleNode(key);
+        } else {
+            return readFromAllNodes(key);
         }
     }
 

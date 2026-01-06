@@ -32,6 +32,10 @@ resource "aws_ecs_task_definition" "cart" {
           value = "http://${aws_lb.main.dns_name}"
         },
         {
+          name  = "DATABASE_READ_STRATEGY"
+          value = "R5"  # Strong consistency for write-heavy Shopping Cart Service
+        },
+        {
           name  = "CREDIT_CARD_AUTHORIZER_URL"
           value = "http://${aws_lb.main.dns_name}/credit-card-authorizer/authorize"
         },

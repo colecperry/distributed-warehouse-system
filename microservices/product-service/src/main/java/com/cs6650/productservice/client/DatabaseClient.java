@@ -15,9 +15,11 @@ import java.util.Map;
  * Database Client for Product Service
  *
  * This client talks to our distributed Leader-Follower database system.
- * The database uses a W=1, R=5 strategy:
+ * The database uses a W=1, R=1 strategy for Product Service:
  * - W=1: Writes go to the Leader only (fast writes, returns immediately)
- * - R=5: Reads query all 5 nodes (Leader + 4 Followers) and return the newest version
+ * - R=1: Reads from a single node (fast reads, eventual consistency)
+ *        - Best for read-heavy workloads like product browsing
+ *        - Trades strict consistency for speed (~5ms vs ~200ms)
  *
  * We just call the database's REST API - the database handles all the replication
  * and consistency logic behind the scenes.
@@ -29,6 +31,9 @@ public class DatabaseClient {
 
   @Value("${database.url:http://localhost:8080}")
   private String databaseUrl;
+
+  @Value("${database.readStrategy:R1}")
+  private String readStrategy;
 
   private final RestTemplate restTemplate = new RestTemplate();
   private final ObjectMapper objectMapper = new ObjectMapper();
@@ -62,9 +67,9 @@ public class DatabaseClient {
   /**
    * Retrieve a value from the database by its key.
    *
-   * This uses the R=5 read strategy - the database queries all 5 nodes (Leader + 4 Followers)
-   * and returns the value with the highest version number. This ensures we always get
-   * the most recent data, even if some Followers haven't been updated yet.
+   * This uses the R=1 read strategy - reads from a single node (Leader or first Follower).
+   * This is optimized for read-heavy workloads like product browsing where speed matters
+   * more than strict consistency. May return slightly stale data if replication hasn't completed.
    *
    * The database returns JSON like: {"key": "product_1", "value": "{...product json...}", "version": 3}
    * We just extract and return the "value" field.
@@ -74,7 +79,9 @@ public class DatabaseClient {
    */
   public String get(String key) {
     try {
-      String url = databaseUrl + "/api/get?key=" + key;
+      // Append read strategy parameter (R1 for fast reads)
+      String url = databaseUrl + "/api/get?key=" + key + "&readStrategy=" + readStrategy;
+      log.debug("Reading from database with strategy: {}", readStrategy);
       ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
 
       if (response.getBody() == null) {

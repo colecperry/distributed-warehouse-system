@@ -2,6 +2,7 @@ package com.cs6650.assignment4.w1r5.controller;
 
 import com.cs6650.assignment4.w1r5.config.NodeConfig;
 import com.cs6650.assignment4.w1r5.model.KeyValue;
+import com.cs6650.assignment4.w1r5.model.ReadStrategy;
 import com.cs6650.assignment4.w1r5.service.LeaderService;
 import com.cs6650.assignment4.w1r5.service.ReadCoordinator;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,8 +12,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.List;
-import java.util.ArrayList;
 
 /**
  * LeaderController handles client requests to the Leader node.
@@ -89,17 +88,37 @@ public class LeaderController {
     }
 
     /**
-     * Handle client READ request.
-     * For now, just read from Leader locally.
-     * Later, we'll implement R=5 with ReadCoordinator.
+     * Handle client READ request with configurable read strategy.
+     *
+     * Supports two read strategies:
+     * - R1: Read from single node (fast, eventual consistency) - Best for read-heavy workloads
+     * - R5: Read from all 5 nodes (slower, strong consistency) - Best for write-heavy workloads
      *
      * GET /api/get?key=username
-     * Response: 200 OK with KeyValue, or 404 Not Found
+     * GET /api/get?key=username&readStrategy=R1
+     * GET /api/get?key=username&readStrategy=R5
+     *
+     * @param key The key to read (required)
+     * @param readStrategy Optional read strategy: "R1" or "R5" (defaults to "R5" for backward compatibility)
+     * @return 200 OK with KeyValue, or 404 Not Found
      */
     @GetMapping("/get")
-    public ResponseEntity<?> get(@RequestParam String key) {
-        // Use ReadCoordinator for R=5 reads
-        KeyValue result = readCoordinator.readFromAllNodes(key);
+    public ResponseEntity<?> get(
+            @RequestParam String key,
+            @RequestParam(required = false, defaultValue = "R5") String readStrategy) {
+        
+        // Parse read strategy parameter
+        ReadStrategy strategy;
+        try {
+            strategy = ReadStrategy.valueOf(readStrategy.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body("Error: Invalid readStrategy. Must be 'R1' or 'R5', got: " + readStrategy);
+        }
+
+        // Use ReadCoordinator with specified strategy
+        KeyValue result = readCoordinator.read(key, strategy);
 
         if (result == null) {
             return ResponseEntity

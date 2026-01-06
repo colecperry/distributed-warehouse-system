@@ -15,9 +15,12 @@ import java.util.Map;
  * Database Client for Shopping Cart Service
  *
  * This client talks to our distributed Leader-Follower database system.
- * The database uses a W=1, R=5 strategy:
+ * The database uses a W=1, R=5 strategy for Shopping Cart Service:
  * - W=1: Writes go to the Leader only (fast writes, returns immediately)
- * - R=5: Reads query all 5 nodes (Leader + 4 Followers) and return the newest version
+ * - R=5: Reads from all 5 nodes (Leader + 4 Followers) and return the newest version
+ *        - Best for write-heavy workloads where consistency is critical
+ *        - Ensures strong consistency for cart operations (~200ms vs ~5ms)
+ *        - Prevents showing stale cart data during checkout
  *
  * We just call the database's REST API - the database handles all the replication
  * and consistency logic behind the scenes.
@@ -29,6 +32,9 @@ public class DatabaseClient {
 
   @Value("${database.url:http://localhost:8080}")
   private String databaseUrl;
+
+  @Value("${database.readStrategy:R5}")
+  private String readStrategy;
 
   private final RestTemplate restTemplate = new RestTemplate();
   private final ObjectMapper objectMapper = new ObjectMapper();
@@ -58,7 +64,12 @@ public class DatabaseClient {
   }
 
   /**
-   * Retrieve a shopping cart from the database by it's key using a R=5 read strategy
+   * Retrieve a shopping cart from the database by its key using a R=5 read strategy.
+   *
+   * This uses the R=5 read strategy - reads from all 5 nodes (Leader + 4 Followers)
+   * and returns the value with the highest version number. This ensures we always get
+   * the most recent cart data, which is critical for checkout operations where consistency
+   * matters more than speed. Prevents issues like showing stale cart contents or incorrect totals.
    *
    * The database returns JSON like: {"key": "cart_1", "value": "{...cart json...}", "version": 3}
    * We just extract and return the "value" field.
@@ -68,8 +79,10 @@ public class DatabaseClient {
    */
   public String get(String key) {
     try {
-      String url = databaseUrl + "/api/get?key=" + key;
-      ResponseEntity<String> response = restTemplate.getForEntity(url, String.class); // Send GET request to database
+      // Append read strategy parameter (R5 for strong consistency)
+      String url = databaseUrl + "/api/get?key=" + key + "&readStrategy=" + readStrategy;
+      log.debug("Reading from database with strategy: {}", readStrategy);
+      ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
 
       if (response.getBody() == null) {
         return null;
