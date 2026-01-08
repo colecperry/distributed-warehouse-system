@@ -17,39 +17,39 @@ assignment5/
 ├── .gitignore
 │
 ├── microservices/
-│   ├── warehouse-service/              ← Member A
+│   ├── warehouse-service/              
 │   │   ├── src/
 │   │   ├── pom.xml
 │   │   ├── Dockerfile
 │   │   └── README.md
 │   │
-│   ├── product-service/                ← Member C (reuse from A1/A3)
+│   ├── product-service/                
 │   │   ├── src/
 │   │   ├── pom.xml
 │   │   ├── Dockerfile
 │   │   └── README.md
 │   │
-│   ├── shopping-cart-service/          ← Member C (reuse from A1/A3)
+│   ├── shopping-cart-service/          
 │   │   ├── src/
 │   │   ├── pom.xml
 │   │   ├── Dockerfile
 │   │   └── README.md
 │   │
-│   └── credit-card-provider/           ← Member D (reuse from A3)
+│   └── credit-card-provider/           
 │       ├── src/
 │       ├── pom.xml
 │       ├── Dockerfile
 │       └── README.md
 │
-├── database/                           ← Member B
-│   ├── leader-follower-w1r5/          (from Assignment 4)
+├── database/                          
+│   ├── leader-follower-w1r5/          
 │   ├── src/
 │   ├── pom.xml
 │   ├── Dockerfile
 │   ├── data-loader/                   (load 1000 products)
 │   └── README.md
 │
-├── terraform/                          ← Member D
+├── terraform/                          
 │   ├── main.tf
 │   ├── variables.tf
 │   ├── ecs.tf                         (autoscaling config)
@@ -57,25 +57,22 @@ assignment5/
 │   ├── networking.tf
 │   └── README.md
 │
-├── locust-tests/                       ← Member D + All
+├── locust-tests/                      
 │   ├── locustfile.py
 │   ├── add_to_cart_task.py
 │   ├── checkout_task.py
 │   ├── requirements.txt
 │   └── README.md
 │
-├── documentation/                      ← All members contribute
-│   ├── assumptions.md                 (Member C lead)
-│   ├── database-choice.md             (Member B lead)
-│   ├── architecture-diagram.png       (Member A lead)
-│   ├── autoscaling-evidence/          (Member D lead)
+├── documentation/                      
+│   ├── assumptions.md                 
+│   ├── database-choice.md             
+│   ├── architecture-diagram.png      
+│   ├── autoscaling-evidence/          
 │   │   ├── graphs/
 │   │   └── metrics/
 │   └── final-report.pdf
 │
-└── videos/                            ← All members
-├── code-walkthrough.mp4
-└── presentation.mp4
 ```
 ---
 
@@ -98,7 +95,9 @@ assignment5/
 **One database with 5 computers (1 Leader + 4 Followers)**
 
 - **W=1:** Write to 1 computer, then respond to customer
-- **R=5:** Read from all 5 computers to get the newest data
+- **R=1 or R=5:** Configurable read strategy per microservice
+  - **R=1:** Read from single node (fast, eventual consistency) - Used by Product Service
+  - **R=5:** Read from all 5 computers to get the newest data (strong consistency) - Used by Shopping Cart Service
 
 ---
 
@@ -115,16 +114,31 @@ assignment5/
 - Customers don't wait
 - Feels instant (50ms vs 250ms if we waited for all 5)
 
-### R=5 (Read from all 5 computers)
+### R=5 (Read from all 5 computers) - Shopping Cart Service
 
 **What it means:**
 - When customer views their cart, we check all 5 computers
 - We show them the newest version
+- Used by Shopping Cart Service for strong consistency
 
 **Why this is good:**
 - Customer always sees the correct price
 - Won't accidentally show old/wrong cart items
 - Prevents showing "sold out" items as "in stock"
+- Critical for checkout operations where accuracy matters more than speed
+
+### R=1 (Read from single node) - Product Service
+
+**What it means:**
+- When customer browses products, we read from just one node (usually the Leader)
+- Fast response time (~50ms vs ~200-300ms for R=5)
+- Used by Product Service for read-heavy workloads
+
+**Why this is good:**
+- Much faster for product browsing (customers browse frequently)
+- Products don't change often, so slight staleness is acceptable
+- Better user experience with faster page loads
+- Optimized for high-frequency read operations
 
 ---
 
@@ -185,11 +199,56 @@ assignment5/
 
 ---
 
-## Future Scaling Plan
+## Configurable Read Strategies Per Microservice
 
-**Right now (1,000 products):**
-- One database cluster is sufficient
+### Implementation Overview
 
-**Later (if we grow to 10,000+ products):**
-- Split into two clusters: one for Products, one for Shopping Carts
-- Each optimized for its specific needs
+Each microservice can now configure its own read strategy based on its workload:
+
+- **Product Service**: Uses **R=1** (fast, single node read)
+  - Optimized for read-heavy product browsing
+  - Median latency: ~550ms (includes service delay)
+  - Database read: ~5-50ms
+  
+- **Shopping Cart Service**: Uses **R=5** (strong consistency, all nodes)
+  - Optimized for write-heavy cart operations
+  - Median latency: ~670ms (includes service delay)
+  - Database read: ~200-300ms
+
+### Database Layer Changes
+
+1. **ReadCoordinator Service**: 
+   - Added `readFromSingleNode(String key)` for R=1 strategy
+   - Kept existing `readFromAllNodes(String key)` for R=5 strategy
+   - Added `ReadStrategy` enum (R1, R5)
+
+2. **LeaderController**:
+   - Modified `/api/get` endpoint to accept `?readStrategy=R1` or `?readStrategy=R5`
+   - Defaults to R=5 for backward compatibility
+
+### Microservice Configuration
+
+Each service configures its read strategy via `application.properties`:
+
+**Product Service** (`microservices/product-service/src/main/resources/application.properties`):
+```properties
+database.readStrategy=R1
+```
+
+**Shopping Cart Service** (`microservices/shopping-cart-service/src/main/resources/application.properties`):
+```properties
+database.readStrategy=R5
+```
+
+### Performance Results
+
+From load testing (Locust, 10 users, 60 seconds):
+
+| Service | Strategy | Median Latency | Use Case |
+|---------|----------|----------------|----------|
+| Product Service | R=1 | 550ms | Product browsing (read-heavy) |
+| Shopping Cart Service | R=5 | 670ms | Cart operations (consistency-critical) |
+
+**Key Insight**: R=5 is ~22% slower than R=1, but provides strong consistency needed for cart operations. The trade-off is appropriate for each service's workload.
+
+---

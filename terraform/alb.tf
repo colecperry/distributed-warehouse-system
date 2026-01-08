@@ -187,7 +187,7 @@ resource "aws_lb_listener_rule" "warehouse" {
 
   condition {
     path_pattern {
-      values = ["/reserve", "/ship", "/warehouse/health"]
+      values = ["/reserve", "/ship", "/check-inventory", "/warehouse/health"]
     }
   }
 

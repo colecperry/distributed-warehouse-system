@@ -2,9 +2,13 @@
 
 ## Executive Summary
 
-**Choice:** Single Leader-Follower Cluster (W=1, R=5, N=5)
+**Choice:** Single Leader-Follower Cluster (W=1, R=1 or R=5 configurable, N=5)
 
-We chose a single database cluster with 5 nodes using Leader-Follower architecture where writes go to 1 node (W=1) and reads query all 5 nodes (R=5). This provides fast writes for customer actions while ensuring strong read consistency for accurate product and cart information.
+We chose a single database cluster with 5 nodes using Leader-Follower architecture where writes go to 1 node (W=1) and reads use configurable strategies per microservice:
+- **R=1**: Product Service uses single-node reads (fast, ~550ms median)
+- **R=5**: Shopping Cart Service uses all-node reads (strong consistency, ~670ms median)
+
+This provides fast writes for customer actions while allowing each microservice to optimize reads based on its workload (speed vs consistency trade-off).
 
 ---
 
@@ -39,7 +43,9 @@ We chose a single database cluster with 5 nodes using Leader-Follower architectu
 - **Type:** Leader-Follower
 - **Nodes:** 5 (1 Leader + 4 Followers)
 - **Write Strategy:** W=1 (write to Leader only)
-- **Read Strategy:** R=5 (read from all 5 nodes)
+- **Read Strategy:** Configurable per microservice
+  - **R=1:** Product Service (fast, single-node reads)
+  - **R=5:** Shopping Cart Service (strong consistency, all-node reads)
 - **Scope:** Single cluster for both Products and Shopping Carts
 
 ### Data Storage
@@ -66,18 +72,32 @@ We chose a single database cluster with 5 nodes using Leader-Follower architectu
 - Customer actions feel instant
 - Critical for conversions
 
-### R=5 (Read from all 5 nodes)
+### R=5 (Read from all 5 nodes) - Shopping Cart Service
 
 **How it works:**
-1. Customer views cart, product, or checks stock availability
+1. Customer views cart or checks cart contents
 2. System queries all 5 nodes in parallel
 3. Returns the newest version (highest version number)
 
 **Why this is good:**
-- Always shows accurate prices
-- Always shows current cart contents
-- Always shows correct stock levels (prevents overselling)
+- Always shows accurate cart contents
+- Always shows correct totals during checkout
+- Prevents showing stale cart data
 - Zero stale reads (proven in Assignment 4 with 10,000 operations)
+- Critical for checkout operations where consistency matters more than speed
+
+### R=1 (Read from single node) - Product Service
+
+**How it works:**
+1. Customer browses products
+2. System reads from single node (usually Leader)
+3. Returns data immediately (fast response)
+
+**Why this is good:**
+- Much faster response time (~550ms vs ~670ms for R=5)
+- Products don't change frequently, so slight staleness is acceptable
+- Optimized for high-frequency product browsing
+- Better user experience with faster page loads
 
 ---
 
@@ -268,13 +288,20 @@ From our Assignment 4 experiments with W=1, R=5 across 10,000 operations:
 
 ## Conclusion
 
-Our W=1, R=5 Leader-Follower architecture provides the optimal balance for an eCommerce system:
+Our W=1, configurable R=1/R=5 Leader-Follower architecture provides the optimal balance for an eCommerce system:
 
  **Fast writes** (5ms at 90% write load from Assignment 4)  
- **Zero stale reads** across 10,000 operations  
+ **Configurable read strategies** per microservice:
+   - **R=1** for Product Service (fast, ~550ms median)
+   - **R=5** for Shopping Cart Service (strong consistency, ~670ms median)
+ **Zero stale reads** with R=5 across 10,000 operations  
  **High availability** ensures website stays up  
  **Proven reliability** from Assignment 4 testing  
  **Simple to maintain** and debug
+
+Each microservice is optimized for its workload:
+- Product Service prioritizes speed (R=1) for high-frequency browsing
+- Shopping Cart Service prioritizes consistency (R=5) for critical cart operations
 
 The brief 800ms eventual consistency window is acceptable for our use case and vastly outweighed by the benefits of speed and availability.
 

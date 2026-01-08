@@ -22,8 +22,8 @@ terraform/
 ### Services Deployed:
 1. **Credit Card Service** (Port 8082) - Memory auto-scaling @ 40%
 2. **Warehouse Service** (Port 8081) - Memory-based auto-scaling @ 40%
-3. **Product Service** (Port 8080) - Memory auto-scaling @ 40%
-4. **Shopping Cart Service** (Port 8083) - Memory-based auto-scaling @ 40%
+3. **Product Service** (Port 8083) - Memory auto-scaling @ 40% (uses R=1 read strategy)
+4. **Shopping Cart Service** (Port 8084) - Memory-based auto-scaling @ 40% (uses R=5 read strategy)
 
 ### Infrastructure Components:
 - **VPC** with public/private subnets across 2 AZs
@@ -181,8 +181,8 @@ scale_out_cooldown = 60  # Wait 60s before scaling out
 service_ports = {
   credit-card-service    = 8082
   warehouse-service      = 8081
-  product-service        = 8080
-  shopping-cart-service  = 8083
+  product-service        = 8083  # Uses R=1 read strategy
+  shopping-cart-service  = 8084   # Uses R=5 read strategy
 }
 
 ## 📊 Monitoring

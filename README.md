@@ -14,18 +14,33 @@ This is an eCommerce microservices system with four services: Product, Shopping 
 
 ### Services
 
-- **Product Service** (Port 8085) - Manages product catalog
-- **Shopping Cart Service** (Port 8081) - Manages carts and checkout
+- **Product Service** (Port 8083) - Manages product catalog (uses R=1 read strategy)
+- **Shopping Cart Service** (Port 8084) - Manages carts and checkout (uses R=5 read strategy)
 - **Credit Card Service** (Port 8082) - Authorizes payments (90% accept, 10% decline)
-- **Warehouse Service** (Port 8089) - Handles inventory and shipping
-- **Database Service** (Port 8080) - Leader-Follower distributed database
+- **Warehouse Service** (Port 8081) - Handles inventory and shipping
+- **Database Service** (Ports 9080-9084) - Leader-Follower distributed database (5 nodes)
 
 ### Database Strategy
 
 - **W=1**: Writes go to Leader only (fast writes)
-- **R=5**: Reads query all 5 nodes, return newest version (strong consistency)
+- **R=1 or R=5**: Configurable read strategy per microservice
+  - **R=1**: Product Service uses single-node reads (fast, ~550ms median)
+  - **R=5**: Shopping Cart Service uses all-node reads (strong consistency, ~670ms median)
 - Products stored with keys: `product_{id}`
 - Shopping carts stored with keys: `cart_{id}`
+
+#### Read Strategy Configuration
+
+Each microservice configures its read strategy based on workload:
+
+| Service | Strategy | Reason | Performance |
+|---------|----------|--------|-------------|
+| Product Service | R=1 | Read-heavy, speed > consistency | ~550ms median |
+| Shopping Cart Service | R=5 | Write-heavy, consistency critical | ~670ms median |
+
+**Configuration:**
+- Product Service: `database.readStrategy=R1` in `application.properties`
+- Shopping Cart Service: `database.readStrategy=R5` in `application.properties`
 
 ## Read/Write Ratios
 
@@ -49,69 +64,63 @@ Transaction boundaries (`beginTransaction`, `endTransaction`, `abortTransaction`
 
 ### Start Services
 
-1. **Database** (Leader-Follower W1R5):
+**Recommended: Use Docker Compose (starts all 10 services)**
+
 ```bash
-cd database/leader-follower-w1r5
-docker-compose up -d
+# From project root
+docker-compose up --build -d
+
+# Check status
+docker-compose ps
+
+# View logs
+docker-compose logs -f
 ```
 
-2. **RabbitMQ**:
-```bash
-docker run -d --name rabbitmq -p 5672:5672 rabbitmq:3-management
-```
+This starts:
+- 5 Database nodes (leader + 4 followers on ports 9080-9084)
+- 4 Microservices (ports 8081-8084)
+- 1 RabbitMQ (ports 5672, 15672)
 
-3. **Credit Card Service**:
-```bash
-cd microservices/credit-card-service
-mvn spring-boot:run
-```
+**Alternative: Start Individual Services**
 
-4. **Warehouse Service**:
-```bash
-cd microservices/warehouse-service
-mvn spring-boot:run
-```
-
-5. **Product Service**:
-```bash
-cd microservices/product-service
-mvn spring-boot:run
-```
-
-6. **Shopping Cart Service**:
-```bash
-cd microservices/shopping-cart-service
-mvn spring-boot:run
-```
+See `DOCKER-SETUP.md` for detailed instructions on starting services individually.
 
 ## API Examples
 
 ### Create Product
 ```bash
-curl -X POST http://localhost:8085/product \
+curl -X POST http://localhost:8083/products \
   -H "Content-Type: application/json" \
-  -d '{"sku":"TEST-001","manufacturer":"TestCorp","category_id":1,"weight":100,"some_other_id":1}'
+  -d '{
+    "product_id": 1,
+    "sku": "TEST-001",
+    "manufacturer": "TestCorp",
+    "category_id": 1,
+    "weight": 100,
+    "some_other_id": 1
+  }'
 ```
 
 ### Create Cart
 ```bash
-curl -X POST http://localhost:8081/shopping-cart \
+curl -X POST http://localhost:8084/shopping-cart \
   -H "Content-Type: application/json" \
-  -d '{"customer_id":100}'
+  -d '{"customer_id": 100}'
 ```
 
 ### Add Item to Cart
 ```bash
-curl -X POST http://localhost:8081/shopping-carts/1/addItem \
+curl -X POST http://localhost:8084/shopping-carts/1/addItem \
   -H "Content-Type: application/json" \
-  -d '{"productId":1,"quantity":5}'
+  -d '{"productId": 1, "quantity": 5}'
 ```
 
 ### Checkout
 ```bash
-curl -X POST http://localhost:8081/shopping-carts/1/checkout \
+curl -X POST http://localhost:8084/shopping-carts/1/checkout \
   -H "Content-Type: application/json" \
-  -d '{"credit_card_number":"1234567890"}'
+  -d '{"credit_card_number": "1234-5678-9012-3456"}'
 ```
 
 ## Key Features
@@ -142,16 +151,74 @@ Assignment5/
 
 Service URLs are configured via environment variables or `application.yml`/`application.properties`:
 
-- Product Service: `http://localhost:8085`
-- Shopping Cart Service: `http://localhost:8081`
+- Product Service: `http://localhost:8083` (R=1 read strategy)
+- Shopping Cart Service: `http://localhost:8084` (R=5 read strategy)
 - Credit Card Service: `http://localhost:8082`
-- Warehouse Service: `http://localhost:8089`
-- Database: `http://localhost:8080`
-- RabbitMQ: `localhost:5672`
+- Warehouse Service: `http://localhost:8081`
+- Database Leader: `http://localhost:9080`
+- Database Followers: `http://localhost:9081-9084`
+- RabbitMQ: `localhost:5672` (Management UI: `localhost:15672`)
+
+### Read Strategy Configuration
+
+Each microservice configures its read strategy in `application.properties`:
+
+**Product Service** (`microservices/product-service/src/main/resources/application.properties`):
+```properties
+database.readStrategy=R1  # Fast, single-node reads
+```
+
+**Shopping Cart Service** (`microservices/shopping-cart-service/src/main/resources/application.properties`):
+```properties
+database.readStrategy=R5  # Strong consistency, all-node reads
+```
 
 ## Testing
 
+### Load Testing
+
 For load testing, use the Locust scripts in `locust-tests/` directory.
+
+**Test Read Strategies Locally:**
+
+1. **Preload products:**
+```bash
+for i in {1..100}; do
+  curl -s -X POST http://localhost:8083/products \
+    -H "Content-Type: application/json" \
+    -d "{\"product_id\": $i, \"sku\": \"PRODUCT-$i\", \"manufacturer\": \"TestCo\", \"category_id\": 1, \"weight\": 100, \"some_other_id\": $i}" \
+    > /dev/null
+done
+```
+
+2. **Test Product Service (R=1):**
+```bash
+cd locust-tests
+locust -f locust_products_only.py --host=http://localhost:8083 --headless -u 10 -r 2 -t 60s
+```
+
+3. **Test Shopping Cart Service (R=5):**
+```bash
+cd locust-tests
+locust -f locust_carts_only.py --host=http://localhost:8084 --headless -u 10 -r 2 -t 60s
+```
+
+**Expected Results:**
+- Product Service (R=1): Median ~550ms, 0 failures
+- Shopping Cart Service (R=5): Median ~670ms, 0 failures
+- R=5 is ~22% slower but provides strong consistency
+
+### Verify Read Strategies
+
+Check database logs to confirm strategies are working:
+
+```bash
+# Watch for R=1 reads (Product Service)
+docker-compose logs w1r5-leader | grep "R=1"
+
+# Watch for R=5 reads (Shopping Cart Service)
+docker-compose logs w1r5-leader | grep "R=5"
+```
 
 ## Notes
 

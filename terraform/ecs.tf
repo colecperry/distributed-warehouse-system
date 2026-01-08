@@ -1,6 +1,5 @@
 # ==========================================
 # Shopping Cart Service Task Definition
-# (Updated for LabRole and Amazon MQ RabbitMQ)
 # ==========================================
 
 resource "aws_ecs_task_definition" "cart" {

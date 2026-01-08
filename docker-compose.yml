@@ -1,5 +1,3 @@
-version: '3.8'
-
 # ==========================================
 # CS6650 Assignment 5 - Full System
 # Database: 5 nodes (ports 9080-9084)

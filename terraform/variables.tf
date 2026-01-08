@@ -5,7 +5,7 @@
 variable "aws_region" {
   description = "AWS region to deploy resources"
   type        = string
-  default     = "us-east-1"
+  default     = "us-west-2"
 }
 
 variable "project_name" {
@@ -33,7 +33,7 @@ variable "vpc_cidr" {
 variable "availability_zones" {
   description = "Availability zones for subnets"
   type        = list(string)
-  default     = ["us-east-1a", "us-east-1b"]
+  default     = ["us-west-2a", "us-west-2b"]
 }
 
 variable "public_subnet_cidrs" {
@@ -59,7 +59,8 @@ variable "ecr_repositories" {
     "credit-card-service",
     "warehouse-service",
     "product-service",
-    "shopping-cart-service"
+    "shopping-cart-service",
+    "database-service"
   ]
 }
 
@@ -68,15 +69,15 @@ variable "ecr_repositories" {
 # ==========================================
 
 variable "ecs_task_cpu" {
-  description = "CPU units for ECS tasks (256 = 0.25 vCPU)"
+  description = "CPU units for ECS tasks (1024 = 1 vCPU)"
   type        = string
-  default     = "256"
+  default     = "1024"
 }
 
 variable "ecs_task_memory" {
   description = "Memory for ECS tasks in MB"
   type        = string
-  default     = "512"
+  default     = "2048"
 }
 
 variable "desired_count" {
@@ -86,7 +87,7 @@ variable "desired_count" {
 }
 
 # ==========================================
-# Auto-scaling Variables (Assignment 5 requirement: max 3 instances)
+# Auto-scaling Variables (Scaled for production capacity)
 # ==========================================
 
 variable "min_capacity" {
@@ -96,9 +97,9 @@ variable "min_capacity" {
 }
 
 variable "max_capacity" {
-  description = "Maximum number of tasks (Assignment 5 requirement)"
+  description = "Maximum number of tasks (scaled for production)"
   type        = number
-  default     = 3
+  default     = 10
 }
 
 # Credit Card Service - Memory based scaling (changed from CPU)

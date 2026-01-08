@@ -3,7 +3,8 @@
 RESTful API for managing products in the eCommerce system. Deployed on AWS ECS as a Docker container.
 
 ## Database Integration
-- **Type**: Distributed Leader-Follower (W=1, R=5)
+- **Type**: Distributed Leader-Follower (W=1, R=1)
+- **Read Strategy**: R=1 (fast, single-node reads) - optimized for read-heavy product browsing
 - **Connection**: Configured via `database.url` in `application.properties`
 - **Storage**: Products stored as JSON with keys: `product_{id}`
 
@@ -11,8 +12,9 @@ RESTful API for managing products in the eCommerce system. Deployed on AWS ECS a
 
 **Local Development** (`application.properties`):
 ```properties
-server.port=8085
-database.url=http://localhost:8080  # Database Leader node
+server.port=8083
+database.url=http://localhost:9080  # Database Leader node
+database.readStrategy=R1  # Fast, single-node reads for product browsing
 ```
 
 **Production**:

@@ -4,6 +4,7 @@ Handles shopping cart operations and checkout flow for the eCommerce system.
 
 ## Database Integration
 - **Type**: Distributed Leader-Follower (W=1, R=5)
+- **Read Strategy**: R=5 (strong consistency, all-node reads) - optimized for write-heavy cart operations
 - **Connection**: Configured via `database.url` in `application.properties`
 - **Storage**: Carts stored as JSON with keys: `cart_{id}`
 
@@ -11,8 +12,9 @@ Handles shopping cart operations and checkout flow for the eCommerce system.
 
 **Local Development** (`application.properties` and `application.yml`):
 ```properties
-server.port=8086
-database.url=http://localhost:8080
+server.port=8084
+database.url=http://localhost:9080  # Database Leader node
+database.readStrategy=R5  # Strong consistency, all-node reads for cart operations
 ```
 ```yaml
 spring:
@@ -93,8 +95,9 @@ Returns: "Hello from Shopping Cart Service!"
 docker run -d \
   --name shopping-cart-service \
   --network my-microservices \
-  -p 8086:8086 \
-  -e DATABASE_URL=http://w1r5-leader:8080 \
+  -p 8084:8084 \
+  -e DATABASE_URL=http://w1r5-leader:9080 \
+  -e DATABASE_READ_STRATEGY=R5 \
   -e CCA_URL=http://credit-card-authorizer:8082/credit-card-authorizer/authorize \
   -e RABBITMQ_HOST=rabbitmq \
   shopping-cart-service

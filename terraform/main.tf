@@ -34,6 +34,7 @@ resource "aws_ecr_repository" "services" {
 
   name                 = each.value
   image_tag_mutability = "MUTABLE"
+  force_delete         = true  # Allow deletion even if repository contains images
 
   image_scanning_configuration {
     scan_on_push = true
@@ -102,17 +103,59 @@ resource "aws_cloudwatch_log_group" "services" {
 }
 
 # ==========================================
-# Use Existing LabRole (AWS Learner Lab)
+# IAM Roles for ECS Tasks
 # ==========================================
 
-data "aws_iam_role" "lab_role" {
-  name = "LabRole"
+# ECS Task Execution Role - Allows tasks to pull images, write logs
+resource "aws_iam_role" "ecs_execution_role" {
+  name = "${var.project_name}-ecs-execution-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "ecs-tasks.amazonaws.com"
+      }
+    }]
+  })
+
+  tags = {
+    Name = "${var.project_name}-ecs-execution-role"
+  }
 }
 
-# Use LabRole for both execution and task roles
+# Attach AWS managed policy for ECS task execution
+resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
+  role       = aws_iam_role.ecs_execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# ECS Task Role - Allows tasks to access AWS services
+resource "aws_iam_role" "ecs_task_role" {
+  name = "${var.project_name}-ecs-task-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "ecs-tasks.amazonaws.com"
+      }
+    }]
+  })
+
+  tags = {
+    Name = "${var.project_name}-ecs-task-role"
+  }
+}
+
+# Use created roles for execution and task
 locals {
-  ecs_execution_role_arn = data.aws_iam_role.lab_role.arn
-  ecs_task_role_arn      = data.aws_iam_role.lab_role.arn
+  ecs_execution_role_arn = aws_iam_role.ecs_execution_role.arn
+  ecs_task_role_arn      = aws_iam_role.ecs_task_role.arn
 }
 
 # ==========================================
@@ -137,9 +180,14 @@ output "ecs_cluster_arn" {
   value       = aws_ecs_cluster.main.arn
 }
 
-output "lab_role_arn" {
-  description = "ARN of the LabRole being used"
-  value       = data.aws_iam_role.lab_role.arn
+output "ecs_execution_role_name" {
+  description = "Name of the ECS execution role"
+  value       = aws_iam_role.ecs_execution_role.name
+}
+
+output "ecs_task_role_name" {
+  description = "Name of the ECS task role"
+  value       = aws_iam_role.ecs_task_role.name
 }
 
 output "ecs_execution_role_arn" {

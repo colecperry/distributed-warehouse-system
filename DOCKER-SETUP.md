@@ -182,6 +182,70 @@ docker-compose logs w1r5-leader | grep "Replication complete"
 # Replication complete
 ```
 
+### Test Read Strategies (R=1 vs R=5)
+
+#### Step 1: Create Test Data
+```bash
+# Create a product
+curl -X POST http://localhost:8083/products \
+  -H "Content-Type: application/json" \
+  -d '{
+    "product_id": 1,
+    "sku": "PRODUCT-0001",
+    "manufacturer": "TestCo",
+    "category_id": 1,
+    "weight": 100,
+    "some_other_id": 1
+  }'
+
+# Create a cart
+curl -X POST http://localhost:8084/shopping-cart \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id": 12345}'
+```
+
+#### Step 2: Test Product Service (R=1 - Fast)
+```bash
+# Read product (should use R=1)
+curl http://localhost:8083/products/1
+
+# Watch database logs for R=1 reads
+docker-compose logs -f w1r5-leader | grep "R=1"
+
+# Should see:
+# R=1 Read starting for key: product_1
+# R=1 Read complete from Leader: version=1
+```
+
+#### Step 3: Test Shopping Cart Service (R=5 - Strong Consistency)
+```bash
+# Read cart (should use R=5)
+curl http://localhost:8084/shopping-carts/1
+
+# Watch database logs for R=5 reads
+docker-compose logs -f w1r5-leader | grep "R=5"
+
+# Should see:
+# R=5 Read starting for key: cart_1
+# Leader returned: version=2
+# Follower 1 returned: version=2
+# Follower 2 returned: version=2
+# Follower 3 returned: version=2
+# Follower 4 returned: version=2
+# R=5 Read complete. Returning version=2
+```
+
+#### Step 4: Compare Response Times
+```bash
+# Time Product Service reads (R=1)
+time (for i in {1..5}; do curl -s http://localhost:8083/products/1 > /dev/null; done)
+
+# Time Shopping Cart Service reads (R=5)
+time (for i in {1..5}; do curl -s http://localhost:8084/shopping-carts/1 > /dev/null; done)
+
+# R=5 should be measurably slower (queries all 5 nodes)
+```
+
 ---
 
 

@@ -51,25 +51,29 @@ so it happens way less often than browsing.
 
 ---
 
-## Database Choice: Why W=1, R=5 Leader-Follower?
+## Database Choice: Why W=1, R=1 or R=5 (Configurable) Leader-Follower?
 
 ### The Setup
 - 1 Leader node (handles all writes)
 - 4 Follower nodes (replicate data from Leader)
 - W=1: Write to Leader, respond immediately, replicate in background
-- R=5: Read from all 5 nodes, return newest version
+- R=1 or R=5: Configurable read strategy per microservice
+  - **R=1**: Product Service uses single-node reads (fast, ~550ms median)
+  - **R=5**: Shopping Cart Service uses all-node reads (strong consistency, ~670ms median)
 
 ### Why this works for us
 
 **For Product Service (read-heavy):**
-- R=5 spreads read load across all 5 nodes → handles high traffic
+- **R=1** provides fast reads from single node → optimized for high-frequency browsing
 - W=1 makes rare product additions fast
-- 200ms replication delay is fine - products don't change during a browsing session
+- Slight staleness acceptable - products don't change during a browsing session
+- Much faster than R=5 (~550ms vs ~670ms median)
 
 **For Shopping Cart Service (write-heavy):**
 - W=1 keeps cart operations fast (critical for user experience)
-- R=5 ensures checkout always reads the latest cart state
-- Carts are user-specific, so inconsistency between nodes doesn't matter
+- **R=5** ensures checkout always reads the latest cart state from all nodes
+- Strong consistency critical for cart operations where accuracy > speed
+- Prevents showing stale cart contents or incorrect totals
 
 ### CAP Theorem Trade-offs
 
@@ -115,8 +119,12 @@ so it happens way less often than browsing.
 ## Bottom Line
 
 Our system is optimized for what actually happens in eCommerce:
-- **Lots of browsing** (handled well by R=5 reads across 5 nodes)
+- **Lots of browsing** (handled well by **R=1** fast single-node reads for Product Service)
 - **Lots of cart modifications** (handled well by W=1 fast writes)
-- **Some checkouts** (R=5 ensures we read the latest cart data)
+- **Some checkouts** (**R=5** ensures we read the latest cart data from all nodes)
 
-The W=1, R=5 strategy gives us fast writes when we need them (cart operations) and distributed reads when we need them (product browsing), with an acceptable 200ms inconsistency window that doesn't hurt the user experience.
+The W=1, configurable R=1/R=5 strategy gives us:
+- **Fast writes** when we need them (cart operations) - W=1
+- **Fast reads** for product browsing - R=1 (~550ms median)
+- **Strong consistency** for cart operations - R=5 (~670ms median)
+- Each microservice optimized for its workload (speed vs consistency trade-off)

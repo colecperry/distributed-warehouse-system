@@ -10,7 +10,9 @@ import sys
 import time
 
 # Replace with your actual ALB URL
-ALB_URL = "http://ecommerce-a5-alb-580142330.us-east-1.elb.amazonaws.com"
+# Or set via environment variable: export ALB_URL=http://your-alb-url
+import os
+ALB_URL = os.getenv("ALB_URL", "http://ecommerce-a5-alb-580142330.us-east-1.elb.amazonaws.com")
 
 def load_products():
   """Load 1000 products via the Product service."""
