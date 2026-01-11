@@ -6,9 +6,11 @@ Realistic load testing that simulates customer shopping behavior and drives auto
 
 ```
 locust-tests/
-├── locustfile.py              # Main test configuration
+├── locustfile.py              # Main test for AWS ALB (all services)
+├── locust_products_only.py    # Product Service only (R=1 testing)
+├── locust_carts_only.py       # Shopping Cart Service only (R=5 testing)
+├── load_products.py           # Preload products script
 ├── requirements.txt           # Python dependencies
-├── reports/                   # Generated test reports
 └── README.md                  # This file
 ```
 
@@ -56,38 +58,73 @@ pip install -r requirements.txt
 
 ```bash
 cd ../terraform
-terraform output alb_dns_name
+ALB_URL=$(terraform output -raw alb_dns_name)
+echo "ALB URL: http://${ALB_URL}"
 ```
 
-Example: `ecommerce-a5-alb-1234567890.us-east-1.elb.amazonaws.com`
+Example: `ecommerce-a5-alb-1234567890.us-west-2.elb.amazonaws.com`
 
-### 3. Set Environment Variable
+**Note:** The system is deployed in `us-west-2` (Oregon) region.
+
+### 3. Preload Products
+
+Before running load tests, preload products (1-100 minimum):
 
 ```bash
-export ALB_URL="http://ecommerce-a5-alb-1234567890.us-east-1.elb.amazonaws.com"
+cd locust-tests
+ALB_URL=$(cd ../terraform && terraform output -raw alb_dns_name)
+export ALB_URL="http://${ALB_URL}"
+
+# Run product loader
+python3 load_products.py
 ```
 
-### 4. Preload Products
-Make sure to update the `load_products.py` script with your ALB URL if needed.
-```bash
-# Replace with your actual ALB URL
-ALB_URL = "http://ecommerce-a5-alb-1635759027.us-east-1.elb.amazonaws.com"
-```
-then run:
-```bash
-python load_products.py
-```
-### 4. Run Tests
+The script will:
+- Create products 1-1000 (takes ~2-3 minutes)
+- Verify products were created
+- Wait for database replication
 
-Replace `<ALB_URL>` with your actual ALB URL.
-Can adjust the number of users, spawn rate, and run time as needed.
+### 4. Run Load Tests
+
+**Option A: Full System Test (AWS ALB)**
+```bash
+cd locust-tests
+ALB_URL=$(cd ../terraform && terraform output -raw alb_dns_name)
+
+locust -f locustfile.py \
+  --host=http://${ALB_URL} \
+  --headless \
+  --users=500 \
+  --spawn-rate=20 \
+  --run-time=10m \
+  --html=load_test_report.html
+```
+
+**Option B: Local Testing (Single Service)**
+
+For testing individual services locally:
 
 ```bash
- locust -f locustfile.py \
-    --headless \
-    --host <ALB_URL> \
-    --users 300 \
-    --spawn-rate 10 \
-    --run-time 15m \
-    --html reports/test_$(date +%Y%m%d_%H%M%S).html
+# Test Product Service only (R=1)
+locust -f locust_products_only.py \
+  --host=http://localhost:8083 \
+  --headless \
+  --users=10 \
+  --spawn-rate=2 \
+  --run-time=60s
+
+# Test Shopping Cart Service only (R=5)
+locust -f locust_carts_only.py \
+  --host=http://localhost:8084 \
+  --headless \
+  --users=10 \
+  --spawn-rate=2 \
+  --run-time=60s
 ```
+
+**Expected Results (AWS):**
+- Total RPS: ~272 requests/second
+- Success Rate: 99.5% (payment declines are expected failures)
+- Average Response Time: ~946ms
+
+See `SCALING_AND_PERFORMANCE.md` for detailed performance analysis.

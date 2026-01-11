@@ -1,12 +1,19 @@
 # Product Service
 
-RESTful API for managing products in the eCommerce system. Deployed on AWS ECS as a Docker container.
+RESTful API for managing products in the eCommerce system. Deployed on AWS ECS as a Docker container. Uses Redis cache for improved read performance.
 
 ## Database Integration
 - **Type**: Distributed Leader-Follower (W=1, R=1)
 - **Read Strategy**: R=1 (fast, single-node reads) - optimized for read-heavy product browsing
 - **Connection**: Configured via `database.url` in `application.properties`
 - **Storage**: Products stored as JSON with keys: `product_{id}`
+
+## Redis Caching
+- **Pattern**: Cache-aside (lazy loading)
+- **TTL**: 1 hour (3600 seconds)
+- **Storage**: Product objects cached in Redis with JSON serialization
+- **Metrics**: Cache hit/miss tracking via `/products/cache/stats` endpoint
+- **Connection**: Configured via `REDIS_HOST` and `REDIS_PORT` environment variables
 
 ## Configuration
 
@@ -25,16 +32,26 @@ database.readStrategy=R1  # Fast, single-node reads for product browsing
 
 **Prerequisites:**
 - Database service must be running (see database/README.md)
+- Redis must be running for caching (optional but recommended)
+
 ```bash
 # Start database first
-cd /path/to/database
+cd database/leader-follower
 docker-compose up -d
 
-# Start product service
-cd product-service
+# Start Redis (for caching)
+docker run -d --name redis-test -p 6379:6379 redis:latest
+
+# Start product service with Redis environment variables
+cd microservices/product-service
+export REDIS_HOST=localhost
+export REDIS_PORT=6379
+export DATABASE_URL=http://localhost:9080
 mvn clean package -DskipTests
 mvn spring-boot:run
 ```
+
+**Note:** Redis is optional - service will fallback to database only if Redis is unavailable.
 
 ## Endpoints
 
@@ -55,6 +72,14 @@ Returns: {"product_id": 1}
 ```bash
 GET /products/{productId}
 Returns: Full product JSON or 404 if not found
+# First read: Cache MISS (queries database)
+# Subsequent reads: Cache HIT (returns from Redis)
+```
+
+**Get Cache Statistics:**
+```bash
+GET /products/cache/stats
+Returns: Cache hit/miss statistics and hit rate
 ```
 
 ## Features
@@ -99,5 +124,7 @@ mvn exec:java -Dexec.mainClass="com.cs6650.client.LoadTestClient"
 
 ## Dependencies
 - Spring Boot Starter Web
+- Spring Data Redis (for caching)
+- Lettuce (Redis client)
 - Jackson (JSON serialization)
 - Lombok (optional, for cleaner code)

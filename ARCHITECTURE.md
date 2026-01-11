@@ -3,7 +3,8 @@
 Building a complete eCommerce system with:
 - 4 Microservices (Product, Shopping Cart, Warehouse, Credit Card Provider)
 - Distributed Database (Leader-Follower W=1, R=5)
-- AWS Deployment (ECS, Auto-scaling, ALB)
+- Redis Cache (ElastiCache for Product Service)
+- AWS Deployment (ECS, Auto-scaling, ALB, ElastiCache)
 - Load Testing (Locust)
 
 ## Project Structure
@@ -98,6 +99,7 @@ assignment5/
 - **R=1 or R=5:** Configurable read strategy per microservice
   - **R=1:** Read from single node (fast, eventual consistency) - Used by Product Service
   - **R=5:** Read from all 5 computers to get the newest data (strong consistency) - Used by Shopping Cart Service
+- **Redis Cache:** Product Service uses cache-aside pattern with 1-hour TTL to reduce database load
 
 ---
 
@@ -250,5 +252,45 @@ From load testing (Locust, 10 users, 60 seconds):
 | Shopping Cart Service | R=5 | 670ms | Cart operations (consistency-critical) |
 
 **Key Insight**: R=5 is ~22% slower than R=1, but provides strong consistency needed for cart operations. The trade-off is appropriate for each service's workload.
+
+---
+
+## Infrastructure Scaling Strategy
+
+### Resource Allocation
+
+The system is deployed on AWS ECS Fargate with the following resource configuration:
+
+| Resource | Baseline | Scaled | Change |
+|----------|----------|--------|--------|
+| **CPU per Task** | 0.25 vCPU (256 units) | 1 vCPU (1024 units) | 4x |
+| **Memory per Task** | 512 MB | 2 GB (2048 MB) | 4x |
+| **Max Instances** | 3 per service | 10 per service | 3.3x |
+
+### Auto-Scaling Configuration
+
+- **Scaling Metric**: Memory utilization (ECSServiceAverageMemoryUtilization)
+- **Target Threshold**: 40% memory utilization
+- **Min Capacity**: 1 instance per service
+- **Max Capacity**: 10 instances per service
+- **Cooldown**: 60 seconds (scale-out and scale-in)
+
+### Why Memory-Based Scaling?
+
+All services use memory-based scaling because:
+- Services use I/O-bound operations with `Thread.sleep()` delays
+- Memory pressure from connection pools indicates actual request load
+- CPU utilization doesn't accurately reflect load for I/O-bound services
+- Uniform 40% threshold ensures coordinated scaling across all services
+
+### Performance Results
+
+Load testing shows the system handles:
+- **272 RPS** with 99.5% success rate
+- **Single instance capacity**: 272 RPS (with 1 vCPU / 2 GB configuration)
+- **Theoretical max capacity**: ~10,880 RPS (4 services × 10 instances × 272 RPS)
+- **Average response time**: 946ms under load
+
+See `SCALING_AND_PERFORMANCE.md` for detailed performance metrics and analysis.
 
 ---

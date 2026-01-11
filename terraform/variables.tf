@@ -192,6 +192,22 @@ variable "database_url" {
 }
 
 # ==========================================
+# ElastiCache Redis Variables
+# ==========================================
+
+variable "redis_node_type" {
+  description = "ElastiCache node type for Redis (cache.t3.micro for dev, larger for prod)"
+  type        = string
+  default     = "cache.t3.micro"
+}
+
+variable "redis_num_cache_nodes" {
+  description = "Number of cache nodes in the Redis cluster (1 for single node, 3+ for HA with automatic failover)"
+  type        = number
+  default     = 1  # Use 1 for dev, 3+ for production with HA
+}
+
+# ==========================================
 # Tags
 # ==========================================
 

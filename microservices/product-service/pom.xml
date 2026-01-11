@@ -36,6 +36,24 @@
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
 
+    <!-- Spring Data Redis for caching -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+
+    <!-- Lettuce Redis client (async, supports connection pooling) -->
+    <dependency>
+      <groupId>io.lettuce</groupId>
+      <artifactId>lettuce-core</artifactId>
+    </dependency>
+
+    <!-- Jackson for JSON serialization (already used, but ensuring compatibility) -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>org.projectlombok</groupId>
       <artifactId>lombok</artifactId>

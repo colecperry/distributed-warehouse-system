@@ -14,11 +14,12 @@ This is an eCommerce microservices system with four services: Product, Shopping 
 
 ### Services
 
-- **Product Service** (Port 8083) - Manages product catalog (uses R=1 read strategy)
+- **Product Service** (Port 8083) - Manages product catalog (uses R=1 read strategy, Redis cache)
 - **Shopping Cart Service** (Port 8084) - Manages carts and checkout (uses R=5 read strategy)
 - **Credit Card Service** (Port 8082) - Authorizes payments (90% accept, 10% decline)
 - **Warehouse Service** (Port 8081) - Handles inventory and shipping
 - **Database Service** (Ports 9080-9084) - Leader-Follower distributed database (5 nodes)
+- **Redis Cache** - ElastiCache Redis for Product Service caching (cache-aside pattern)
 
 ### Database Strategy
 
@@ -60,7 +61,7 @@ Transaction boundaries (`beginTransaction`, `endTransaction`, `abortTransaction`
 ### Prerequisites
 - Java 17+
 - Maven 3.9+
-- Docker (for database and RabbitMQ)
+- Docker (for database, RabbitMQ, and Redis)
 
 ### Start Services
 
@@ -81,6 +82,11 @@ This starts:
 - 5 Database nodes (leader + 4 followers on ports 9080-9084)
 - 4 Microservices (ports 8081-8084)
 - 1 RabbitMQ (ports 5672, 15672)
+
+**Note:** Redis cache testing requires separate Docker container:
+```bash
+docker run -d --name redis-test -p 6379:6379 redis:latest
+```
 
 **Alternative: Start Individual Services**
 
@@ -125,6 +131,7 @@ curl -X POST http://localhost:8084/shopping-carts/1/checkout \
 
 ## Key Features
 
+- **Redis Caching**: Product Service uses Redis cache (cache-aside pattern, 1-hour TTL)
 - **Simulated Delays**: All endpoints have 100-1000ms random delays for autoscaling simulation
 - **Auto-Create Cart**: Carts are automatically created when adding items to non-existent carts
 - **Transaction Boundaries**: Simulated ACID transactions with logging (no actual 2PC)
@@ -151,13 +158,14 @@ Assignment5/
 
 Service URLs are configured via environment variables or `application.yml`/`application.properties`:
 
-- Product Service: `http://localhost:8083` (R=1 read strategy)
+- Product Service: `http://localhost:8083` (R=1 read strategy, Redis cache)
 - Shopping Cart Service: `http://localhost:8084` (R=5 read strategy)
 - Credit Card Service: `http://localhost:8082`
 - Warehouse Service: `http://localhost:8081`
 - Database Leader: `http://localhost:9080`
 - Database Followers: `http://localhost:9081-9084`
 - RabbitMQ: `localhost:5672` (Management UI: `localhost:15672`)
+- Redis: `localhost:6379` (for Product Service caching)
 
 ### Read Strategy Configuration
 
@@ -174,6 +182,10 @@ database.readStrategy=R5  # Strong consistency, all-node reads
 ```
 
 ## Testing
+
+### Redis Cache Testing
+
+See `REDIS_TESTING.md` for detailed Redis cache testing instructions (local Redis setup, cache hit/miss verification, load testing).
 
 ### Load Testing
 
@@ -219,6 +231,55 @@ docker-compose logs w1r5-leader | grep "R=1"
 # Watch for R=5 reads (Shopping Cart Service)
 docker-compose logs w1r5-leader | grep "R=5"
 ```
+
+## AWS Deployment
+
+### Infrastructure Scaling
+
+The system is deployed to AWS ECS Fargate with auto-scaling:
+
+- **Resource Allocation**: 1 vCPU / 2 GB per service (4x increase from baseline)
+- **Auto-Scaling**: Memory-based, 40% threshold
+- **Scaling Capacity**: 1-10 instances per service (can scale 3.3x beyond original limit)
+- **Performance**: Handles 272 RPS with 99.5% success rate
+
+See `SCALING_AND_PERFORMANCE.md` for detailed performance metrics and scaling strategy.
+
+### Managing AWS Resources
+
+**⚠️ IMPORTANT: Stop infrastructure when not in use to avoid charges!**
+
+**Start Everything (Creates infrastructure and starts services):**
+```bash
+cd terraform
+./start-services.sh
+```
+This automatically: creates infrastructure, builds/pushes Docker images, and starts all services (~10-15 minutes).
+
+**Stop Everything (Destroys infrastructure - Zero charges):**
+```bash
+cd terraform
+./stop-services.sh
+# Type 'yes' when prompted
+```
+This destroys all infrastructure (ALB, NAT Gateway, EC2, ECS) - zero charges after completion.
+
+**Check What's Running (Check for charges):**
+```bash
+REGION="us-west-2" && echo "EC2:" && aws ec2 describe-instances --region $REGION --filters "Name=tag:Name,Values=ecommerce-a5-*" "Name=instance-state-name,Values=running" --query 'length(Reservations[*].Instances[*])' --output text && echo "NAT:" && aws ec2 describe-nat-gateways --region $REGION --filter "Name=state,Values=available" --query 'length(NatGateways)' --output text && echo "ALB:" && aws elbv2 describe-load-balancers --region $REGION --query 'length(LoadBalancers[?contains(LoadBalancerName, `ecommerce-a5`)])' --output text
+```
+All should show `0` if nothing is running (no charges).
+
+### Database Service
+
+The database service is deployed as an ECS service alongside the microservices. It includes:
+- **Leader node**: Handles all writes and read coordination
+- **R=1/R=5 read strategies**: Configured per microservice
+- **ALB routing**: `/api/*` routes to database leader
+
+### Full Deployment Instructions
+
+See `terraform/README.md` for complete deployment instructions and manual steps.
 
 ## Notes
 

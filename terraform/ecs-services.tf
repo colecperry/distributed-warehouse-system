@@ -149,6 +149,14 @@ resource "aws_ecs_task_definition" "product" {
         {
           name  = "DATABASE_READ_STRATEGY"
           value = "R1"  # Fast reads for read-heavy Product Service
+        },
+        {
+          name  = "REDIS_HOST"
+          value = aws_elasticache_replication_group.redis.primary_endpoint_address
+        },
+        {
+          name  = "REDIS_PORT"
+          value = tostring(aws_elasticache_replication_group.redis.port)
         }
       ]
 
