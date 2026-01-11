@@ -1,0 +1,14 @@
+# Exclude generated/test files from language statistics
+locust-tests/*.html linguist-generated=true
+locust-tests/load_test_report.html linguist-generated=true
+
+# Mark HTML test reports as generated
+*.html linguist-generated=true
+!*.md
+
+# Ensure proper language detection
+*.java linguist-language=Java
+*.py linguist-language=Python
+*.tf linguist-language=HCL
+*.properties linguist-language=Properties
+*.sh linguist-language=Shell

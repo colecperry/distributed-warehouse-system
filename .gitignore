@@ -132,3 +132,4 @@ cloudwatch-logs/
 # Load test results
 locust-tests/results/
 locust-tests/reports/
+locust-tests/*.html
