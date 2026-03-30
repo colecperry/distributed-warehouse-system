@@ -1,13 +1,21 @@
+# ===========================================
+# Spring Boot loads this file at startup.
+# Values under "node:" are mapped to NodeConfig.java
+# via @ConfigurationProperties(prefix = "node")
+# ===========================================
+
 # Server configuration
 server:
   port: ${PORT:8080}
 
-# Node configuration (reads from environment variables)
+# Node configuration - NodeConfig.java reads these fields
+# ${NODE_ID:1} = use NODE_ID env var if set, else default to 1
+# In Docker: each container gets different values (Leader: id=1 type=leader, Followers: id=2-5 type=follower)
 node:
   id: ${NODE_ID:1}
   type: ${NODE_TYPE:leader}
 
-  # Using new Docker service names and port range 9080-9084
+  # URLs of all nodes (Leader first, then Followers); used for replication and R=5 reads
   nodes:
     - http://w1r5-leader:9080
     - http://w1r5-follower1:9081

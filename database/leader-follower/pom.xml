@@ -7,11 +7,11 @@
   <modelVersion>4.0.0</modelVersion>
 
   <!-- Your project info -->
-  <groupId>com.cs6650.assignment4</groupId>
-  <artifactId>leader-follower-w1r5</artifactId>
+  <groupId>com.warehouse</groupId>
+  <artifactId>leader-follower</artifactId>
   <version>1.0.0</version>
-  <name>Leader-Follower W1R5</name>
-  <description>Leader-Follower database with W=1, R=5 strategy</description>
+  <name>Leader-Follower Database</name>
+  <description>Distributed Leader-Follower database with configurable W=1, R=1/R=5 read strategies</description>
 
   <!-- Use Java 17 -->
   <properties>

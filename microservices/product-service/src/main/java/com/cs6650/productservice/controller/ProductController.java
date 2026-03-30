@@ -12,7 +12,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Random;
 
 /**
  * Product Service Controller
@@ -20,15 +19,11 @@ import java.util.Random;
  * Handles creating and retrieving products from our distributed database with Redis caching.
  * Products are stored as JSON strings in the database with keys like "product_1", "product_2", etc.
  * Reads use Redis cache for improved performance (cache-aside pattern).
- *
- * Each endpoint includes a random delay (100-1000ms) to simulate real business logic processing.
  */
 @Slf4j
 @RestController
 @RequestMapping("/products")
 public class ProductController {
-
-  private final Random random = new Random();
 
   @Autowired
   private DatabaseClient database;
@@ -38,19 +33,6 @@ public class ProductController {
 
   @Autowired
   private ObjectMapper objectMapper;
-
-  /**
-   * Adds a random delay between 100-1000ms to simulate business logic.
-   * This helps trigger autoscaling during load testing.
-   */
-  private void simulateDelay() {
-    int delay = 100 + random.nextInt(901);
-    try {
-      Thread.sleep(delay);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
-  }
 
   /**
    * Health check endpoint for AWS ALB
@@ -92,8 +74,6 @@ public class ProductController {
    */
   @PostMapping("")
   public ResponseEntity<Map<String, Integer>> createProduct(@RequestBody Product product) {
-    simulateDelay();
-
     // FIXED: Use the product_id from the request body
     Integer productId = product.getProductId();
 
@@ -140,8 +120,6 @@ public class ProductController {
    */
   @GetMapping("/{productId}")
   public ResponseEntity<Product> getProduct(@PathVariable Integer productId) {
-    simulateDelay();
-
     try {
       // Use cache service (implements cache-aside pattern)
       Product product = cacheService.getProduct(productId);

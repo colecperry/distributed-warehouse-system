@@ -1,205 +1,118 @@
+# Architecture Documentation
 
 ## Project Overview
+
 Building a complete eCommerce system with:
 - 4 Microservices (Product, Shopping Cart, Warehouse, Credit Card Provider)
-- Distributed Database (Leader-Follower W=1, R=5)
+- Distributed Database (Leader-Follower W=1, R=1/R=5 configurable)
 - Redis Cache (ElastiCache for Product Service)
 - AWS Deployment (ECS, Auto-scaling, ALB, ElastiCache)
 - Load Testing (Locust)
 
-## Project Structure
+---
 
-```
-assignment5/
-│
-├── README.md
-├── ARCHITECTURE.md
-├── PLANNING_README.md
-├── .gitignore
-│
-├── microservices/
-│   ├── warehouse-service/              
-│   │   ├── src/
-│   │   ├── pom.xml
-│   │   ├── Dockerfile
-│   │   └── README.md
-│   │
-│   ├── product-service/                
-│   │   ├── src/
-│   │   ├── pom.xml
-│   │   ├── Dockerfile
-│   │   └── README.md
-│   │
-│   ├── shopping-cart-service/          
-│   │   ├── src/
-│   │   ├── pom.xml
-│   │   ├── Dockerfile
-│   │   └── README.md
-│   │
-│   └── credit-card-provider/           
-│       ├── src/
-│       ├── pom.xml
-│       ├── Dockerfile
-│       └── README.md
-│
-├── database/                          
-│   ├── leader-follower-w1r5/          
-│   ├── src/
-│   ├── pom.xml
-│   ├── Dockerfile
-│   ├── data-loader/                   (load 1000 products)
-│   └── README.md
-│
-├── terraform/                          
-│   ├── main.tf
-│   ├── variables.tf
-│   ├── ecs.tf                         (autoscaling config)
-│   ├── alb.tf
-│   ├── networking.tf
-│   └── README.md
-│
-├── locust-tests/                      
-│   ├── locustfile.py
-│   ├── add_to_cart_task.py
-│   ├── checkout_task.py
-│   ├── requirements.txt
-│   └── README.md
-│
-├── documentation/                      
-│   ├── assumptions.md                 
-│   ├── database-choice.md             
-│   ├── architecture-diagram.png      
-│   ├── autoscaling-evidence/          
-│   │   ├── graphs/
-│   │   └── metrics/
-│   └── final-report.pdf
-│
-```
+## System Design Diagram
+
+![System Architecture](architecture.png)
+
 ---
 
 # Database Architecture Decision
 
-## Use Cases
+## Executive Summary
+
+**Choice:** Single Leader-Follower Cluster (W=1, R=1 or R=5 configurable, N=5)
+
+We chose a single database cluster with 5 nodes using Leader-Follower architecture where writes go to 1 node (W=1) and reads use configurable strategies per microservice:
+- **R=1**: Product Service uses single-node reads (fast, ~550ms median)
+- **R=5**: Shopping Cart Service uses all-node reads (strong consistency, ~670ms median)
+
+This provides fast writes for customer actions while allowing each microservice to optimize reads based on its workload (speed vs consistency trade-off).
+
+## Use Cases Analysis
 
 ### Use Case 1: Add Item to Cart
-- **Reads:** Product info (price, name), Warehouse inventory check (VERY frequent)
-- **Writes:** Create/update shopping cart (RARE)
+- **Reads:** Product info (price, name, stock) from Product database (frequent)
+- **Writes:** Create/update shopping cart (frequent)
+- **Note:** Inventory availability checked via Product database stock field
 
 ### Use Case 2: Checkout
-- **Reads:** Shopping cart contents, product details (FREQUENT)
-- **Writes:** Update cart status, possibly inventory (VERY FREQUENT)
+- **Reads:** Shopping cart contents, product details (frequent)
+- **Writes:** Update cart status (frequent)
+- **External Services:** Credit card authorization (90% approve, 10% decline)
+- **External Services:** Warehouse ship request via RabbitMQ (always succeeds)
 
----
+### Database Access Patterns
 
-## Our Decision
+**Products:**
+- **Pattern:** Read-heavy (customers browse constantly, admins update rarely)
+- **Operations:** Read product details, check stock (frequent), Admin adds products (rare)
+- **Read/Write Ratio:** ~10:1 (10,000 reads vs 100 writes in typical scenario)
 
-**One database with 5 computers (1 Leader + 4 Followers)**
+**Shopping Carts:**
+- **Pattern:** Write-heavy (create cart, add items, checkout)
+- **Operations:** Create cart, update items, read contents (all frequent during sessions)
+- **Read/Write Ratio:** ~1:5 (1 read vs 6 writes in typical customer session)
 
-- **W=1:** Write to 1 computer, then respond to customer
-- **R=1 or R=5:** Configurable read strategy per microservice
-  - **R=1:** Read from single node (fast, eventual consistency) - Used by Product Service
-  - **R=5:** Read from all 5 computers to get the newest data (strong consistency) - Used by Shopping Cart Service
-- **Redis Cache:** Product Service uses cache-aside pattern with 1-hour TTL to reduce database load
+## Database Configuration
 
----
+### Architecture Details
+- **Type:** Leader-Follower
+- **Nodes:** 5 (1 Leader + 4 Followers)
+- **Write Strategy:** W=1 (write to Leader only)
+- **Read Strategy:** Configurable per microservice
+  - **R=1:** Product Service (fast, single-node reads)
+  - **R=5:** Shopping Cart Service (strong consistency, all-node reads)
+- **Scope:** Single cluster for both Products and Shopping Carts
 
-## Why This Makes Sense for eCommerce
+### Data Storage
+- **Products:** Stored as `"product_{id}" → {JSON with stock field}`
+- **Shopping Carts:** Stored as `"cart_{id}" → {JSON}`
+- **Capacity:** Sufficient for 1,000-5,000 products and active carts
+- **Important:** Warehouse and Credit Card services have NO database storage (per assignment requirements)
 
-### W=1 (Write to 1 computer first)
+## Why W=1, R=1/R=5?
 
-**What it means:**
-- When customer clicks "Add to Cart", we save it on the Leader computer
-- Customer sees "Item Added!" right away (fast!)
-- Then we quietly copy to the other 4 computers in the background
+### W=1 (Write to 1 node first)
+
+**How it works:**
+1. Customer clicks "Add to Cart"
+2. Leader saves cart data immediately
+3. Customer sees response (5ms under write-heavy load)
+4. Leader replicates to 4 Followers in background (200ms each)
 
 **Why this is good:**
-- Customers don't wait
-- Feels instant (50ms vs 250ms if we waited for all 5)
+- Fast customer experience (5ms vs 618ms for W=3, 2484ms for W=5 from Assignment 4)
+- No waiting for replication
+- Customer actions feel instant
+- Critical for conversions
 
-### R=5 (Read from all 5 computers) - Shopping Cart Service
+### R=5 (Read from all 5 nodes) - Shopping Cart Service
 
-**What it means:**
-- When customer views their cart, we check all 5 computers
-- We show them the newest version
-- Used by Shopping Cart Service for strong consistency
+**How it works:**
+1. Customer views cart or checks cart contents
+2. System queries all 5 nodes in parallel
+3. Returns the newest version (highest version number)
 
 **Why this is good:**
-- Customer always sees the correct price
-- Won't accidentally show old/wrong cart items
-- Prevents showing "sold out" items as "in stock"
-- Critical for checkout operations where accuracy matters more than speed
+- Always shows accurate cart contents
+- Always shows correct totals during checkout
+- Prevents showing stale cart data
+- Zero stale reads (proven with 10,000 operations in load testing)
+- Critical for checkout operations where consistency matters more than speed
 
 ### R=1 (Read from single node) - Product Service
 
-**What it means:**
-- When customer browses products, we read from just one node (usually the Leader)
-- Fast response time (~50ms vs ~200-300ms for R=5)
-- Used by Product Service for read-heavy workloads
+**How it works:**
+1. Customer browses products
+2. System reads from single node (usually Leader)
+3. Returns data immediately (fast response)
 
 **Why this is good:**
-- Much faster for product browsing (customers browse frequently)
-- Products don't change often, so slight staleness is acceptable
+- Much faster response time (~550ms vs ~670ms for R=5)
+- Products don't change frequently, so slight staleness is acceptable
+- Optimized for high-frequency product browsing
 - Better user experience with faster page loads
-- Optimized for high-frequency read operations
-
----
-
-## The Trade-off (CAP Theorem)
-
-### What we gave up:
-- For about 1 second, the 4 Follower computers might have slightly old data
-- **Example:** Customer adds item to cart at 2:00:00 PM
-    - Leader computer knows immediately (2:00:00 PM)
-    - Follower 1 knows at 2:00:00.2 PM (0.2 seconds later)
-    - Follower 2 knows at 2:00:00.4 PM (0.4 seconds later)
-    - Follower 3 knows at 2:00:00.6 PM (0.6 seconds later)
-    - Follower 4 knows at 2:00:00.8 PM (0.8 seconds later)
-- After 0.8 seconds, ALL computers have the same data
-- This brief delay is called "eventual consistency" - everyone catches up eventually
-
-### What we kept:
-- **Availability:** Website stays up even if 1-2 computers crash
-- **Speed:** Customers get fast responses
-
-### Why this is okay:
-- 0.8 seconds is so fast, customers won't notice
-- Much better than website being down
-
----
-
-## Why Leader-Follower (Not Leaderless)?
-
-### Simpler to understand:
-- One boss (Leader) handles all writes
-- Four workers (Followers) copy from the boss
-- No confusion about which computer has the "real" data
-
-### Prevents problems:
-- Two customers can't accidentally modify the same cart at the same time
-- We tested this in Assignment 4 and it worked perfectly
-
----
-
-## Why NOT Other Database Options?
-
-### W=5, R=1 (Write to all 5, Read from 1)
-- **Why NOT:** Customers wait 1+ second every time they add to cart (too slow, frustrating experience).
-
-### W=3, R=3 (Write to 3, Read from 3)
-- **Why NOT:** Middle ground that's slower than W=1 for writes but less consistent than R=5 for reads (no clear advantage).
-
-### Leaderless Database
-- **Why NOT:** More complex to manage and two customers could accidentally create conflicting cart updates at the same time.
-
----
-
-## What We Learned from Assignment 4
-
-- W=1, R=5 was the best balance of speed and accuracy
-- 800ms replication time is totally fine for our use case
-- This setup handled 10,000 operations without breaking
-
----
 
 ## Configurable Read Strategies Per Microservice
 
@@ -253,6 +166,214 @@ From load testing (Locust, 10 users, 60 seconds):
 
 **Key Insight**: R=5 is ~22% slower than R=1, but provides strong consistency needed for cart operations. The trade-off is appropriate for each service's workload.
 
+## Why Leader-Follower (Not Leaderless)?
+
+### Advantages of Leader-Follower
+
+**Simpler consistency model:**
+- One Leader handles all writes
+- Four Followers replicate from Leader
+- Clear authority prevents write conflicts
+
+**Prevents race conditions:**
+- Two customers cannot modify the same cart simultaneously
+- Shopping cart updates are serialized through Leader
+- No conflict resolution needed
+
+**Easier to debug:**
+- Single source of truth (Leader)
+- Clear replication flow
+- Proven in load testing
+
+### Why NOT Leaderless?
+
+**From load testing:**
+- W=N, R=1 Leaderless showed 1243ms writes at 90% write load (249x slower than W=1, R=5)
+- 95% throughput degradation from read-heavy to write-heavy workloads
+- Requires complex conflict resolution (vector clocks, CRDTs)
+- Unnecessary for our scale (1,000 products)
+
+## CAP Theorem Trade-offs
+
+### What is CAP?
+- **C**onsistency: All nodes see the same data at the same time
+- **A**vailability: System responds to requests even if nodes fail
+- **P**artition tolerance: System works even if network splits
+
+**CAP Theorem:** You can only guarantee 2 out of 3
+
+### Our Choice: AP (Availability + Partition Tolerance)
+
+**What we prioritized:**
+- **Availability:** Website stays up even if 1-2 nodes fail
+- **Partition Tolerance:** System works during network issues
+- **Speed:** Fast responses for customers
+
+**What we deprioritized:**
+- **Strong Consistency:** Accept brief stale data (up to 800ms)
+
+### The Trade-off Explained
+
+**What we gave up:**
+- For about 0.8 seconds, Follower nodes might have slightly old data
+- **Example:** Customer adds item to cart at 2:00:00 PM
+    - Leader knows immediately (2:00:00 PM)
+    - Follower 1 knows at 2:00:00.2 PM (200ms later)
+    - Follower 2 knows at 2:00:00.4 PM (400ms later)
+    - Follower 3 knows at 2:00:00.6 PM (600ms later)
+    - Follower 4 knows at 2:00:00.8 PM (800ms later)
+- After 0.8 seconds, ALL nodes have the same data
+
+**Why this is acceptable:**
+- 0.8 seconds is too fast for customers to notice
+- Much better than website being down
+- eCommerce prioritizes availability over brief staleness
+- Our R=5 reads always return the newest version anyway (zero stale reads in Assignment 4)
+
+## Performance Testing Results
+
+From load testing W=1, R=5 across 10,000 operations:
+
+**W=1 Write Performance by Workload:**
+
+| Scenario | Write P50 | Write Avg | Throughput |
+|----------|-----------|-----------|------------|
+| 90% Write, 10% Read | **5ms** | 26ms | 106 req/s |
+| 50% Write, 50% Read | 147ms | 135ms | 148 req/s |
+| 10% Write, 90% Read | 268ms | 245ms | 326 req/s |
+| 1% Write, 99% Read | 275ms | 273ms | 480 req/s |
+
+**R=5 Read Performance by Workload:**
+
+| Scenario | Read P50 | Read Avg |
+|----------|----------|----------|
+| 90% Write, 10% Read | **255ms** | 274ms |
+| 50% Write, 50% Read | 412ms | 398ms |
+| 10% Write, 90% Read | 532ms | 512ms |
+| 1% Write, 99% Read | 542ms | 540ms |
+
+**Critical Finding:**
+- **Zero stale reads** across all 10,000 operations and all test scenarios
+- R=5 always returns newest version by querying all nodes and comparing version numbers
+- Even during 800ms replication window, R=5 finds latest data on Leader
+
+### Comparison with Other Strategies
+
+**Write Performance at 90% Write Load:**
+
+| Strategy | Write P50 | Performance vs W=1, R=5 |
+|----------|-----------|-------------------------|
+| **W=1, R=5** | **5ms** | Baseline (fastest) |
+| W=3, R=3 | 618ms | 123x slower |
+| W=5, R=1 | 2484ms | 497x slower |
+| W=N, R=1 | 1243ms | 249x slower |
+
+**Why This Matters:**
+- eCommerce requires fast writes for cart operations
+- W=1, R=5 delivered best write performance under write-heavy load
+- All configurations achieved zero stale reads, so performance was the deciding factor
+
+### Key Insights
+
+1. **W=1 provides best write performance** - 5ms at 90% write load vs 618ms+ for alternatives
+2. **R=5 eliminates stale reads** - Zero stale reads despite async replication
+3. **Leader-Follower handled 10,000 operations** - No failures or data loss
+4. **Replication delays are predictable** - 200ms per node, total 800ms
+5. **Consistent performance** - W=1, R=5 maintained stable throughput across workloads
+
+## Why NOT Other Database Options?
+
+### W=5, R=1 (Write to all 5, Read from 1)
+**Why NOT:** 2484ms writes at 90% write load (497x slower than W=1, R=5). Unacceptable for customer cart operations.
+
+### W=3, R=3 (Write to 3, Read from 3)
+**Why NOT:** 618ms writes vs 5ms (W=1, R=5) at high write loads. No advantage for our workload. Same throughput but much slower writes.
+
+### W=N, R=1 Leaderless
+**Why NOT:**
+- 1243ms writes (249x slower than W=1, R=5)
+- 95% throughput collapse from read-heavy to write-heavy workloads
+- Excessive complexity (conflict resolution) unnecessary for our scale
+
+## Traffic Patterns & Assumptions
+
+### Use Case Frequency
+
+**Adding items to cart: Very Common (~85% of traffic)**
+
+People browse a lot before buying. A typical customer might:
+- Look at 20 products
+- Add 5 items to their cart
+- Maybe checkout (or maybe abandon the cart)
+
+**Checkout: Less Common (~15% of traffic)**
+
+Most carts get abandoned. Industry average is 60-70% abandonment rate. Checkout requires payment info and commitment, so it happens way less often than browsing.
+
+**Our estimate: 10-15 add-to-cart operations for every 1 checkout**
+
+### Traffic Patterns
+- **Browse : Add : Checkout** = roughly **20 : 10 : 1**
+- Peak load: ~1,000 concurrent shoppers
+- Most carts (60-70%) get abandoned without checkout
+
+### Data Patterns
+- Starting with 1,000 products in the catalog
+- Average cart has 3-5 items
+- Carts only last for one session (no saving for later)
+
+### Performance Assumptions
+- Each request has a random 100-1000ms delay (to trigger autoscaling in testing)
+- Database replication takes ~200ms
+- This delay is acceptable for our business logic
+
+### Simplifications (for this assignment)
+- No user authentication (we trust the customer_id from the client)
+- Products use simple auto-incrementing IDs
+- Quantity limits: 1-10,000 items per product
+
+## System Scale
+
+### Current Scale
+- **Products:** 1,000-5,000 items in database
+- **Concurrent Users:** Up to 1,000 simultaneous shoppers
+- **Peak Load:** Auto-scaling enabled for traffic spikes
+
+### Usage Patterns
+- **Browse/Search:** High frequency (product reads from database)
+- **Add to Cart:** High frequency (cart writes + product reads)
+- **Checkout:** Lower frequency (cart reads/writes + external service calls)
+- **Note:** Warehouse service only involved in checkout (ship via RabbitMQ)
+
+### Business Requirements
+- **Availability > Consistency:** Website uptime is critical
+- **Fast Response:** Customers expect instant actions
+- **Accurate Data:** Must prevent overselling and wrong prices
+
+## Future Scaling Plan
+
+### Current Architecture (1,000 products)
+- Single cluster sufficient
+- All data fits in memory
+- 5 nodes handle load easily
+
+### Growth Plan (10,000+ products)
+**Option 1: Vertical Scaling**
+- Increase memory on existing nodes
+- Add more CPU resources
+- Simple, low-risk approach
+
+**Option 2: Horizontal Partitioning**
+- Split into two clusters:
+    - **Cluster 1:** Products (W=1, R=5) - Read-optimized
+    - **Cluster 2:** Shopping Carts (W=5, R=1) - Write-optimized
+- Each cluster optimized for its workload
+
+**Option 3: Geographic Distribution**
+- Consider Leaderless for global deployment
+- Multi-region replication for low latency worldwide
+- Only if expanding internationally
+
 ---
 
 ## Infrastructure Scaling Strategy
@@ -291,6 +412,36 @@ Load testing shows the system handles:
 - **Theoretical max capacity**: ~10,880 RPS (4 services × 10 instances × 272 RPS)
 - **Average response time**: 946ms under load
 
-See `SCALING_AND_PERFORMANCE.md` for detailed performance metrics and analysis.
+See `terraform/README.md` for full AWS deployment and performance analysis.
 
 ---
+
+## Conclusion
+
+Our W=1, configurable R=1/R=5 Leader-Follower architecture provides the optimal balance for an eCommerce system:
+
+- **Fast writes** (5ms at 90% write load from Assignment 4)  
+- **Configurable read strategies** per microservice:
+  - **R=1** for Product Service (fast, ~550ms median)
+  - **R=5** for Shopping Cart Service (strong consistency, ~670ms median)
+- **Zero stale reads** with R=5 across 10,000 operations  
+- **High availability** ensures website stays up  
+- **Proven reliability** from Assignment 4 testing  
+- **Simple to maintain** and debug
+
+Each microservice is optimized for its workload:
+- Product Service prioritizes speed (R=1) for high-frequency browsing
+- Shopping Cart Service prioritizes consistency (R=5) for critical cart operations
+
+The brief 800ms eventual consistency window is acceptable for our use case and vastly outweighed by the benefits of speed and availability.
+
+Our system is optimized for what actually happens in eCommerce:
+- **Lots of browsing** (handled well by **R=1** fast single-node reads for Product Service)
+- **Lots of cart modifications** (handled well by W=1 fast writes)
+- **Some checkouts** (**R=5** ensures we read the latest cart data from all nodes)
+
+The W=1, configurable R=1/R=5 strategy gives us:
+- **Fast writes** when we need them (cart operations) - W=1
+- **Fast reads** for product browsing - R=1 (~550ms median)
+- **Strong consistency** for cart operations - R=5 (~670ms median)
+- Each microservice optimized for its workload (speed vs consistency trade-off)

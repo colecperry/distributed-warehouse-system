@@ -7,8 +7,7 @@ Realistic load testing that simulates customer shopping behavior and drives auto
 ```
 locust-tests/
 ├── locustfile.py              # Main test for AWS ALB (all services)
-├── locust_products_only.py    # Product Service only (R=1 testing)
-├── locust_carts_only.py       # Shopping Cart Service only (R=5 testing)
+├── locust_single_service.py   # Single service testing (Product or Cart)
 ├── load_products.py           # Preload products script
 ├── requirements.txt           # Python dependencies
 └── README.md                  # This file
@@ -106,7 +105,7 @@ For testing individual services locally:
 
 ```bash
 # Test Product Service only (R=1)
-locust -f locust_products_only.py \
+LOCUST_SERVICE=product locust -f locust_single_service.py \
   --host=http://localhost:8083 \
   --headless \
   --users=10 \
@@ -114,7 +113,7 @@ locust -f locust_products_only.py \
   --run-time=60s
 
 # Test Shopping Cart Service only (R=5)
-locust -f locust_carts_only.py \
+LOCUST_SERVICE=cart locust -f locust_single_service.py \
   --host=http://localhost:8084 \
   --headless \
   --users=10 \

@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Product Cache Service
@@ -29,9 +30,9 @@ public class ProductCacheService {
 
   private static final String CACHE_KEY_PREFIX = "product_";
   
-  // Cache metrics
-  private long cacheHits = 0;
-  private long cacheMisses = 0;
+  // Thread-safe cache metrics
+  private final AtomicLong cacheHits = new AtomicLong(0);
+  private final AtomicLong cacheMisses = new AtomicLong(0);
 
   @Autowired
   private RedisTemplate<String, Object> redisTemplate;
@@ -59,14 +60,13 @@ public class ProductCacheService {
       Product cachedProduct = (Product) redisTemplate.opsForValue().get(cacheKey);
       
       if (cachedProduct != null) {
-        // Cache hit
-        cacheHits++;
+        cacheHits.incrementAndGet();
         log.info("Cache HIT for product: {}", productId);
         return cachedProduct;
       }
-      
+
       // Step 2: Cache miss - query database
-      cacheMisses++;
+      cacheMisses.incrementAndGet();
       log.info("Cache MISS for product: {}, querying database", productId);
       
       String productJson = databaseClient.get(cacheKey);
@@ -129,11 +129,11 @@ public class ProductCacheService {
    * @return Cache hit rate as a percentage (0-100)
    */
   public double getCacheHitRate() {
-    long total = cacheHits + cacheMisses;
+    long total = cacheHits.get() + cacheMisses.get();
     if (total == 0) {
       return 0.0;
     }
-    return (double) cacheHits / total * 100.0;
+    return (double) cacheHits.get() / total * 100.0;
   }
 
   /**
@@ -142,7 +142,7 @@ public class ProductCacheService {
    * @return Map containing cache metrics
    */
   public CacheStats getCacheStats() {
-    return new CacheStats(cacheHits, cacheMisses, getCacheHitRate());
+    return new CacheStats(cacheHits.get(), cacheMisses.get(), getCacheHitRate());
   }
 
   /**

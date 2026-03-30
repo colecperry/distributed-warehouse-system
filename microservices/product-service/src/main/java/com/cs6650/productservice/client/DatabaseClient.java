@@ -16,6 +16,11 @@ import java.util.Map;
  *
  * This client talks to our distributed Leader-Follower database system.
  * The database uses a W=1, R=1 strategy for Product Service:
+ *
+ * Note: Shopping Cart Service has its own DatabaseClient with the same put/get methods
+ * plus transaction support (beginTransaction/endTransaction/abortTransaction). The
+ * duplication is intentional — each microservice owns its dependencies independently,
+ * which is a standard microservice boundary trade-off.
  * - W=1: Writes go to the Leader only (fast writes, returns immediately)
  * - R=1: Reads from a single node (fast reads, eventual consistency)
  *        - Best for read-heavy workloads like product browsing

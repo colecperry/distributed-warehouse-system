@@ -1,10 +1,4 @@
-# CS6650 Assignment 5
-
-## Team Members
-- Hyunmin (Ryan) Kim
-- Cole Perry
-- Mustafa Oguz Duman
-- Yi-Chia Chu (Erica)
+# Distributed eCommerce System
 
 ## Overview
 
@@ -34,10 +28,10 @@ This is an eCommerce microservices system with four services: Product, Shopping 
 
 Each microservice configures its read strategy based on workload:
 
-| Service | Strategy | Reason | Performance |
-|---------|----------|--------|-------------|
-| Product Service | R=1 | Read-heavy, speed > consistency | ~550ms median |
-| Shopping Cart Service | R=5 | Write-heavy, consistency critical | ~670ms median |
+| Service               | Strategy |              Reason            | Performance |
+|-----------------------|----------|-----------------------------------|--------|
+| Product Service       | R=1      | Read-heavy, speed > consistency   | ~550ms |
+| Shopping Cart Service | R=5      | Write-heavy, consistency critical | ~670ms |
 
 **Configuration:**
 - Product Service: `database.readStrategy=R1` in `application.properties`
@@ -90,7 +84,13 @@ docker run -d --name redis-test -p 6379:6379 redis:latest
 
 **Alternative: Start Individual Services**
 
-See `DOCKER-SETUP.md` for detailed instructions on starting services individually.
+```bash
+# Just database
+docker-compose up w1r5-leader w1r5-follower1 w1r5-follower2 w1r5-follower3 w1r5-follower4
+
+# Just microservices
+docker-compose up warehouse-service credit-card-service product-service shopping-cart-service
+```
 
 ## API Examples
 
@@ -132,7 +132,6 @@ curl -X POST http://localhost:8084/shopping-carts/1/checkout \
 ## Key Features
 
 - **Redis Caching**: Product Service uses Redis cache (cache-aside pattern, 1-hour TTL)
-- **Simulated Delays**: All endpoints have 100-1000ms random delays for autoscaling simulation
 - **Auto-Create Cart**: Carts are automatically created when adding items to non-existent carts
 - **Transaction Boundaries**: Simulated ACID transactions with logging (no actual 2PC)
 - **Fire-and-Forget**: Orders sent to warehouse via RabbitMQ without blocking checkout
@@ -141,17 +140,18 @@ curl -X POST http://localhost:8084/shopping-carts/1/checkout \
 ## Project Structure
 
 ```
-Assignment5/
+distributed-warehouse-system/
 ├── database/
-│   ├── leader-follower-w1r5/     # Distributed database (W=1, R=5)
+│   ├── leader-follower/          # Distributed database (W=1, R=1/R=5)
 │   └── data-loader/              # Product data loader
 ├── microservices/
-│   ├── product-service/           # Product catalog service
-│   ├── shopping-cart-service/     # Shopping cart and checkout
-│   ├── credit-card-service/       # Payment authorization
-│   └── warehouse-service/         # Inventory and shipping
-├── locust-tests/                  # Load testing scripts
-└── terraform/                     # AWS infrastructure as code
+│   ├── product-service/          # Product catalog (R=1, Redis cache)
+│   ├── shopping-cart-service/    # Cart and checkout orchestrator (R=5)
+│   ├── credit-card-service/      # Payment authorization
+│   └── warehouse-service/        # Inventory and shipping
+├── locust-tests/                 # Load testing scripts
+├── terraform/                    # AWS ECS infrastructure as code
+└── docker-compose.yml            # Local development orchestration
 ```
 
 ## Configuration
@@ -185,90 +185,34 @@ database.readStrategy=R5  # Strong consistency, all-node reads
 
 ### Redis Cache Testing
 
-See `REDIS_TESTING.md` for detailed Redis cache testing instructions (local Redis setup, cache hit/miss verification, load testing).
+Start Redis locally and hit the cache stats endpoint:
+
+```bash
+docker run -d --name redis-test -p 6379:6379 redis:latest
+curl http://localhost:8083/products/cache/stats
+```
 
 ### Load Testing
 
-For load testing, use the Locust scripts in `locust-tests/` directory.
+See `locust-tests/README.md` for full load testing instructions. Quick start:
 
-**Test Read Strategies Locally:**
-
-1. **Preload products:**
-```bash
-for i in {1..100}; do
-  curl -s -X POST http://localhost:8083/products \
-    -H "Content-Type: application/json" \
-    -d "{\"product_id\": $i, \"sku\": \"PRODUCT-$i\", \"manufacturer\": \"TestCo\", \"category_id\": 1, \"weight\": 100, \"some_other_id\": $i}" \
-    > /dev/null
-done
-```
-
-2. **Test Product Service (R=1):**
 ```bash
 cd locust-tests
-locust -f locust_products_only.py --host=http://localhost:8083 --headless -u 10 -r 2 -t 60s
-```
-
-3. **Test Shopping Cart Service (R=5):**
-```bash
-cd locust-tests
-locust -f locust_carts_only.py --host=http://localhost:8084 --headless -u 10 -r 2 -t 60s
-```
-
-**Expected Results:**
-- Product Service (R=1): Median ~550ms, 0 failures
-- Shopping Cart Service (R=5): Median ~670ms, 0 failures
-- R=5 is ~22% slower but provides strong consistency
-
-### Verify Read Strategies
-
-Check database logs to confirm strategies are working:
-
-```bash
-# Watch for R=1 reads (Product Service)
-docker-compose logs w1r5-leader | grep "R=1"
-
-# Watch for R=5 reads (Shopping Cart Service)
-docker-compose logs w1r5-leader | grep "R=5"
+pip install -r requirements.txt
+locust -f locustfile.py --host=http://localhost:8084
 ```
 
 ## AWS Deployment
 
-### Infrastructure Scaling
+Deployed to AWS ECS Fargate with memory-based auto-scaling (1–10 instances per service, 40% threshold). Handles 272 RPS with 99.5% success rate.
 
-The system is deployed to AWS ECS Fargate with auto-scaling:
+See `terraform/README.md` for full deployment instructions.
 
-- **Resource Allocation**: 1 vCPU / 2 GB per service (4x increase from baseline)
-- **Auto-Scaling**: Memory-based, 40% threshold
-- **Scaling Capacity**: 1-10 instances per service (can scale 3.3x beyond original limit)
-- **Performance**: Handles 272 RPS with 99.5% success rate
-
-See `SCALING_AND_PERFORMANCE.md` for detailed performance metrics and scaling strategy.
-
-### Managing AWS Resources
-
-**⚠️ IMPORTANT: Stop infrastructure when not in use to avoid charges!**
-
-**Start Everything (Creates infrastructure and starts services):**
 ```bash
 cd terraform
-./start-services.sh
+./start-services.sh   # Creates infrastructure + deploys (~10-15 min)
+./stop-services.sh    # Destroys everything — zero charges after completion
 ```
-This automatically: creates infrastructure, builds/pushes Docker images, and starts all services (~10-15 minutes).
-
-**Stop Everything (Destroys infrastructure - Zero charges):**
-```bash
-cd terraform
-./stop-services.sh
-# Type 'yes' when prompted
-```
-This destroys all infrastructure (ALB, NAT Gateway, EC2, ECS) - zero charges after completion.
-
-**Check What's Running (Check for charges):**
-```bash
-REGION="us-west-2" && echo "EC2:" && aws ec2 describe-instances --region $REGION --filters "Name=tag:Name,Values=ecommerce-a5-*" "Name=instance-state-name,Values=running" --query 'length(Reservations[*].Instances[*])' --output text && echo "NAT:" && aws ec2 describe-nat-gateways --region $REGION --filter "Name=state,Values=available" --query 'length(NatGateways)' --output text && echo "ALB:" && aws elbv2 describe-load-balancers --region $REGION --query 'length(LoadBalancers[?contains(LoadBalancerName, `ecommerce-a5`)])' --output text
-```
-All should show `0` if nothing is running (no charges).
 
 ### Database Service
 
@@ -283,7 +227,6 @@ See `terraform/README.md` for complete deployment instructions and manual steps.
 
 ## Notes
 
-- Product IDs and Cart IDs are auto-generated
 - Credit Card Service randomly accepts 90% and declines 10% of payments
-- Warehouse Service has no database (always succeeds)
-- All delays are random (100-1000ms) to simulate realistic processing times
+- Warehouse Service has no database (always returns available)
+- Transaction boundaries (beginTransaction/endTransaction/abortTransaction) are logged but not a real 2PC implementation

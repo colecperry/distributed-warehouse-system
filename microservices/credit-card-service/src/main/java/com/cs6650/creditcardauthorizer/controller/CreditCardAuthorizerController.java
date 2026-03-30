@@ -17,21 +17,8 @@ public class CreditCardAuthorizerController {
 
   private final Random random = new Random();
 
-  // Utility method for adding delay: 100–1000ms
-  private void simulateDelay() {
-    int delay = 100 + random.nextInt(901); // 0–901 → 100–1001ms range
-    try {
-      Thread.sleep(delay);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
-  }
-
   @PostMapping("/authorize")
   public ResponseEntity<Map<String, String>> authorizePayment(@RequestBody Map<String, String> body) {
-
-    simulateDelay();
-
     String cardNumber = body.get("credit_card_number");
 
     // Validate input
